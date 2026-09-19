@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI Crawler Gate Check</title>
+<meta name="description" content="See which AI crawlers your site lets in, which it blocks, and whether your stated policy is actually enforced.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* ---------- tokens: light is the base, both dark states redefine ---------- */
+:root{
+  color-scheme: light dark;
+  --ground:#EEEDE7;
+  --surface:#FBFAF7;
+  --surface-2:#F4F2EC;
+  --ink:#191C23;
+  --ink-soft:#42464F;
+  --muted:#6C6B63;
+  --line:#DBD8CD;
+  --line-strong:#C3BFB1;
+  --crit:#AE3428;
+  --crit-bg:#F6E4E1;
+  --warn:#8C6210;
+  --warn-bg:#F6EDD9;
+  --good:#2C6A4D;
+  --good-bg:#E0EFE6;
+  --info:#46556E;
+  --info-bg:#E6E9EF;
+  --btn-fg:#FBFAF7;
+  --shadow:0 1px 2px rgba(25,28,35,.06), 0 8px 24px -12px rgba(25,28,35,.22);
+  --radius:10px;
+  --font-ui:"Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-text:"Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-mono:"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#121419;
+    --surface:#1A1D24;
+    --surface-2:#22262E;
+    --ink:#E9EAE6;
+    --ink-soft:#BCBEB9;
+    --muted:#92948F;
+    --line:#2B2F38;
+    --line-strong:#3C424E;
+    --crit:#E58274;
+    --crit-bg:#33211E;
+    --warn:#DBA946;
+    --warn-bg:#2E2718;
+    --good:#74BC97;
+    --good-bg:#1B2C23;
+    --info:#95A7C4;
+    --info-bg:#1F242D;
+    --btn-fg:#121419;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#121419; --surface:#1A1D24; --surface-2:#22262E;
+  --ink:#E9EAE6; --ink-soft:#BCBEB9; --muted:#92948F;
+  --line:#2B2F38; --line-strong:#3C424E;
+  --crit:#E58274; --crit-bg:#33211E;
+  --warn:#DBA946; --warn-bg:#2E2718;
+  --good:#74BC97; --good-bg:#1B2C23;
+  --info:#95A7C4; --info-bg:#1F242D;
+  --btn-fg:#121419;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--font-ui);
+  font-size:15px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+img{max-width:100%}
+[hidden]{display:none !important}
+:focus-visible{outline:2px solid var(--ink); outline-offset:2px; border-radius:4px}
+
+.wrap{max-width:1000px; margin:0 auto; padding-inline:20px; padding-block:0}
+
+/* ---------- header ---------- */
+header.site{
+  border-bottom:1px solid var(--line);
+  background:var(--surface);
+}
+.site .wrap{display:flex; align-items:center; justify-content:space-between; gap:16px; padding-block:14px; flex-wrap:wrap}
+.mark{display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:-.01em; font-size:15px}
+.mark .dot{width:9px; height:9px; border-radius:50%; background:var(--good); box-shadow:0 0 0 3px var(--good-bg)}
+.mark .by{font-weight:500; color:var(--muted); font-size:12.5px; letter-spacing:.02em}
+.themebtn{
+  font:600 12px/1 var(--font-ui); letter-spacing:.04em; text-transform:uppercase;
+  background:none; border:1px solid var(--line-strong); color:var(--ink-soft);
+  padding:7px 11px; border-radius:99px; cursor:pointer;
+}
+.themebtn:hover{border-color:var(--ink); color:var(--ink)}
+
+/* ---------- hero ---------- */
+.hero{padding-block:44px 8px}
+.eyebrow{
+  font:600 11.5px/1 var(--font-ui); letter-spacing:.14em; text-transform:uppercase;
+  color:var(--muted); margin:0 0 14px;
+}
+h1{
+  font-family:var(--font-ui); font-weight:700; letter-spacing:-.025em;
+  font-size:clamp(30px, 5.2vw, 46px); line-height:1.08; margin:0 0 16px;
+  text-wrap:balance; max-width:17ch;
+}
+.lede{
+  font-family:var(--font-text); font-size:clamp(16px,2.2vw,18.5px); line-height:1.5;
+  color:var(--ink-soft); margin:0 0 30px; max-width:62ch;
+}
+.lede b{color:var(--ink); font-weight:600}
+
+/* ---------- scan form ---------- */
+.panel{
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--radius); box-shadow:var(--shadow);
+}
+.form{padding:22px}
+.field-label{
+  display:block; font:600 11.5px/1 var(--font-ui); letter-spacing:.12em;
+  text-transform:uppercase; color:var(--muted); margin-bottom:9px;
+}
+.inputrow{display:flex; gap:10px; flex-wrap:wrap}
+.inputrow input[type=text]{
+  flex:1 1 260px; min-width:0;
+  font:500 16px/1.2 var(--font-mono);
+  padding:13px 14px; border-radius:8px;
+  border:1px solid var(--line-strong); background:var(--ground); color:var(--ink);
+}
+.inputrow input[type=text]::placeholder{color:var(--muted); font-weight:400}
+.btn{
+  font:600 14.5px/1 var(--font-ui); letter-spacing:.005em;
+  background:var(--ink); color:var(--btn-fg); border:1px solid var(--ink);
+  padding:13px 22px; border-radius:8px; cursor:pointer; white-space:nowrap;
+}
+.btn:hover{opacity:.88}
+.btn:disabled{opacity:.5; cursor:progress}
+.btn.ghost{background:transparent; color:var(--ink); border-color:var(--line-strong)}
+.btn.ghost:hover{border-color:var(--ink); opacity:1}
+
+.seg{display:flex; flex-wrap:wrap; gap:7px; margin-top:18px}
+.seg input{position:absolute; opacity:0; pointer-events:none}
+.seg label{
+  font:600 12.5px/1 var(--font-ui); letter-spacing:.01em;
+  padding:9px 13px; border:1px solid var(--line-strong); border-radius:99px;
+  color:var(--ink-soft); cursor:pointer; user-select:none;
+}
+.seg input:checked + label{background:var(--ink); color:var(--btn-fg); border-color:var(--ink)}
+.seg input:focus-visible + label{outline:2px solid var(--ink); outline-offset:2px}
+
+.err{
+  margin-top:14px; font:500 13.5px/1.5 var(--font-ui);
+  color:var(--crit); background:var(--crit-bg); border:1px solid color-mix(in srgb, var(--crit) 30%, transparent);
+  padding:10px 13px; border-radius:8px;
+}
+.formnote{margin:14px 0 0; font-size:12.5px; color:var(--muted); line-height:1.5}
+
+/* ---------- manifest (what we check / live scan) ---------- */
+.manifest{margin-top:16px; border-top:1px solid var(--line); padding:18px 22px 20px}
+.manifest h3{
+  font:600 11.5px/1 var(--font-ui); letter-spacing:.12em; text-transform:uppercase;
+  color:var(--muted); margin:0 0 14px;
+}
+.mlist{display:grid; grid-template-columns:repeat(auto-fill, minmax(235px,1fr)); gap:1px 0; margin:0; padding:0; list-style:none}
+.mrow{
+  display:flex; align-items:center; gap:9px; padding:6px 0;
+  font:400 12.5px/1.3 var(--font-mono); color:var(--ink-soft);
+  border-bottom:1px solid transparent;
+}
+.mrow .tick{
+  width:14px; height:14px; flex:none; border-radius:3px; border:1px solid var(--line-strong);
+  display:grid; place-items:center; font-size:9px; color:var(--muted);
+}
+.mrow.done .tick{border-color:currentColor}
+.mrow[data-v="allowed"]{color:var(--good)}
+.mrow[data-v="blocked"], .mrow[data-v="challenged"]{color:var(--crit)}
+.mrow[data-v="priced"]{color:var(--warn)}
+.mrow .v{margin-left:auto; font-size:11px; letter-spacing:.03em; text-transform:uppercase; font-weight:600}
+.mrow .cat{color:var(--muted); font-size:11px}
+
+/* ---------- results ---------- */
+.results{padding-block:34px 60px}
+.scorecard{display:grid; grid-template-columns:150px 1fr; gap:26px; padding:24px; align-items:center}
+@media (max-width:560px){ .scorecard{grid-template-columns:1fr; gap:18px} }
+.ring{width:150px; height:150px; display:block; margin:0 auto}
+.ring text{font-family:var(--font-ui)}
+.posture-name{font:700 clamp(22px,3.6vw,30px)/1.1 var(--font-ui); letter-spacing:-.02em; margin:0 0 8px}
+.posture-line{font-family:var(--font-text); font-size:16.5px; line-height:1.5; color:var(--ink-soft); margin:0 0 16px; max-width:52ch}
+.tally{display:flex; flex-wrap:wrap; gap:8px}
+.chip{
+  font:600 12px/1 var(--font-ui); letter-spacing:.02em;
+  padding:7px 11px; border-radius:6px; display:inline-flex; align-items:center; gap:6px;
+}
+.chip.crit{color:var(--crit); background:var(--crit-bg)}
+.chip.warn{color:var(--warn); background:var(--warn-bg)}
+.chip.good{color:var(--good); background:var(--good-bg)}
+.chip.info{color:var(--info); background:var(--info-bg)}
+.chip.neutral{color:var(--ink-soft); background:var(--surface-2)}
+.chip .n{font-family:var(--font-mono); font-weight:600}
+
+.scanned{
+  font:400 12px/1.4 var(--font-mono); color:var(--muted);
+  padding:12px 24px; border-top:1px solid var(--line);
+  display:flex; flex-wrap:wrap; gap:6px 18px;
+}
+
+h2.sec{
+  font:700 clamp(19px,2.6vw,23px)/1.2 var(--font-ui); letter-spacing:-.018em;
+  margin:40px 0 4px; text-wrap:balance;
+}
+.sec-sub{font-family:var(--font-text); color:var(--muted); font-size:15.5px; margin:0 0 18px; max-width:60ch}
+
+/* findings */
+.findings{display:flex; flex-direction:column; gap:12px}
+.finding{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+  border-left:3px solid var(--line-strong); padding:17px 19px;
+}
+.finding[data-sev="critical"]{border-left-color:var(--crit)}
+.finding[data-sev="warning"]{border-left-color:var(--warn)}
+.finding[data-sev="good"]{border-left-color:var(--good)}
+.finding[data-sev="info"]{border-left-color:var(--info)}
+.finding .sev{
+  font:600 10.5px/1 var(--font-ui); letter-spacing:.13em; text-transform:uppercase;
+  display:inline-block; margin-bottom:9px;
+}
+.finding[data-sev="critical"] .sev{color:var(--crit)}
+.finding[data-sev="warning"] .sev{color:var(--warn)}
+.finding[data-sev="good"] .sev{color:var(--good)}
+.finding[data-sev="info"] .sev{color:var(--info)}
+.finding h4{font:600 16.5px/1.3 var(--font-ui); letter-spacing:-.008em; margin:0 0 7px; text-wrap:balance}
+.finding p{font-family:var(--font-text); font-size:15.5px; line-height:1.55; margin:0; color:var(--ink-soft); max-width:68ch}
+.finding .fix{
+  margin-top:11px; padding-top:11px; border-top:1px dashed var(--line);
+  font-family:var(--font-ui); font-size:13.5px; line-height:1.5; color:var(--ink);
+}
+.finding .fix b{
+  font:600 10.5px/1 var(--font-ui); letter-spacing:.13em; text-transform:uppercase;
+  color:var(--muted); display:block; margin-bottom:5px;
+}
+
+/* crawler table */
+.tablewrap{overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius)}
+table{border-collapse:collapse; width:100%; min-width:540px}
+caption{text-align:left; padding:14px 18px 0; font:600 11.5px/1 var(--font-ui); letter-spacing:.12em; text-transform:uppercase; color:var(--muted)}
+th,td{padding:10px 18px; text-align:left; border-bottom:1px solid var(--line); font-size:13.5px; vertical-align:middle}
+thead th{
+  font:600 10.5px/1 var(--font-ui); letter-spacing:.11em; text-transform:uppercase; color:var(--muted);
+  border-bottom:1px solid var(--line-strong); padding-top:14px;
+}
+tbody tr:last-child td{border-bottom:none}
+td.name{font-family:var(--font-mono); font-weight:500; white-space:nowrap}
+td.vendor{color:var(--muted)}
+td.rob{font-family:var(--font-mono); font-size:12.5px; color:var(--muted)}
+.vchip{font:600 11.5px/1 var(--font-ui); letter-spacing:.02em; padding:5px 9px; border-radius:5px; display:inline-block; white-space:nowrap}
+.vchip.allowed{color:var(--good); background:var(--good-bg)}
+.vchip.blocked,.vchip.challenged,.vchip.ratelimited{color:var(--crit); background:var(--crit-bg)}
+.vchip.priced{color:var(--warn); background:var(--warn-bg)}
+.vchip.other,.vchip.timeout,.vchip.error,.vchip.notprobed{color:var(--ink-soft); background:var(--surface-2)}
+tr.band td{
+  background:var(--surface-2); font:600 10.5px/1 var(--font-ui); letter-spacing:.12em;
+  text-transform:uppercase; color:var(--muted); padding:9px 18px;
+}
+
+/* gate */
+.gate{padding:26px; text-align:center; background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--radius); box-shadow:var(--shadow)}
+.gate h3{font:700 clamp(20px,3vw,25px)/1.2 var(--font-ui); letter-spacing:-.02em; margin:0 0 9px; text-wrap:balance}
+.gate p.g-sub{font-family:var(--font-text); font-size:16px; color:var(--ink-soft); margin:0 auto 20px; max-width:46ch}
+.gateform{display:flex; flex-direction:column; gap:10px; max-width:380px; margin:0 auto}
+.gateform input{
+  font:400 15px/1.2 var(--font-ui); padding:12px 14px; border-radius:8px;
+  border:1px solid var(--line-strong); background:var(--ground); color:var(--ink); width:100%;
+}
+.gateform .btn{width:100%; padding:13px}
+.gatenote{font-size:12px; color:var(--muted); margin:14px 0 0}
+.hp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden}
+
+.blur{position:relative; user-select:none}
+.blur > *{filter:blur(5px); opacity:.55; pointer-events:none}
+
+/* limits / CTA */
+.limits{background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius); padding:22px 24px}
+.limits h3{font:700 19px/1.25 var(--font-ui); letter-spacing:-.015em; margin:0 0 10px}
+.limits ul{margin:0; padding-left:18px; font-family:var(--font-text); font-size:15.5px; line-height:1.6; color:var(--ink-soft)}
+.limits li{margin-bottom:7px}
+.limits li:last-child{margin-bottom:0}
+
+footer.site{border-top:1px solid var(--line); margin-top:10px; background:var(--surface)}
+footer.site .wrap{padding-block:20px; font-size:12.5px; color:var(--muted); display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap}
+
+.demo-flag{
+  font:600 11px/1 var(--font-ui); letter-spacing:.1em; text-transform:uppercase;
+  background:var(--warn-bg); color:var(--warn); padding:7px 12px; border-radius:99px;
+  display:inline-block; margin-bottom:14px;
+}
+
+.spin{display:inline-block; width:13px; height:13px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:sp .7s linear infinite; vertical-align:-2px; margin-right:7px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.01ms !important; transition-duration:.01ms !important}
+}
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <div class="mark"><span class="dot" aria-hidden="true"></span> AI Crawler Gate Check <span class="by">&nbsp;/&nbsp; free scan</span></div>
+    <button class="themebtn" id="themebtn" type="button">Theme</button>
+  </div>
+</header>
+
+<main>
+  <section class="wrap hero">
+    <p class="eyebrow">Cloudflare AI bot policy audit</p>
+    <h1>Find out who your site is letting in.</h1>
+    <p class="lede">On <b>September 15, 2026</b> Cloudflare started blocking AI training and agent crawlers by default on new domains. Most site owners have no idea what their current setting is, whether it is enforced, or whether it is quietly costing them search traffic. This checks from the outside, in about ten seconds.</p>
+
+    <div class="panel">
+      <form class="form" id="scanform" novalidate>
+        <label class="field-label" for="domain">Domain to scan</label>
+        <div class="inputrow">
+          <input type="text" id="domain" name="domain" placeholder="yourdomain.com" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="url">
+          <button class="btn" id="scanbtn" type="submit">Run the scan</button>
+        </div>
+
+        <div class="seg" role="radiogroup" aria-label="Site type">
+          <input type="radio" name="intent" id="i-funnel" value="funnel"><label for="i-funnel">Funnel / lead gen</label>
+          <input type="radio" name="intent" id="i-content" value="content"><label for="i-content">Content / SEO</label>
+          <input type="radio" name="intent" id="i-ecom" value="ecommerce"><label for="i-ecom">Ecommerce</label>
+          <input type="radio" name="intent" id="i-mixed" value="mixed" checked><label for="i-mixed">Mixed / not sure</label>
+        </div>
+
+        <div class="err" id="err" hidden></div>
+        <p class="formnote">The scan sends a handful of ordinary requests to your homepage and reads your robots.txt. Nothing is changed and nothing is logged on your server beyond normal access entries.</p>
+      </form>
+
+      <div class="manifest" id="manifest">
+        <h3 id="manifest-title">What gets checked</h3>
+        <ul class="mlist" id="mlist"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap results" id="results" hidden></section>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <span>AI Crawler Gate Check</span>
+    <span>Outside-in scan. Not affiliated with Cloudflare.</span>
+  </div>
+</footer>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * Config
+ * ------------------------------------------------------------------ */
+const params = new URLSearchParams(location.search);
+const API_BASE = (params.get('api') || '').replace(/\/$/, '');
+const CONSULT_URL = params.get('cta') || '#';
+
+const CATEGORY_LABEL = {
+  control: 'baseline', training: 'training', agent: 'agent', search: 'search'
+};
+
+const CHECK_LIST = [
+  ['Real browser', 'baseline'], ['Generic script', 'baseline'],
+  ['Googlebot', 'search'], ['Bingbot', 'search'],
+  ['GPTBot', 'training'], ['ClaudeBot', 'training'], ['CCBot', 'training'],
+  ['Bytespider', 'training'], ['meta-externalagent', 'training'], ['Amazonbot', 'training'],
+  ['ChatGPT-User', 'agent'], ['Claude-User', 'agent'], ['Perplexity-User', 'agent'],
+  ['OAI-SearchBot', 'search'], ['PerplexityBot', 'search'], ['Claude-SearchBot', 'search'],
+  ['robots.txt + Content Signals', 'policy'], ['llms.txt', 'policy'],
+];
+
+/* ------------------------------------------------------------------ *
+ * Theme toggle
+ * ------------------------------------------------------------------ */
+(function () {
+  const btn = document.getElementById('themebtn');
+  let stored = null;
+  try { stored = localStorage.getItem('acgc-theme'); } catch (e) {}
+  if (stored === 'dark' || stored === 'light') document.documentElement.setAttribute('data-theme', stored);
+  btn.addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-theme');
+    const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const next = cur ? (cur === 'dark' ? 'light' : 'dark') : (sysDark ? 'light' : 'dark');
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('acgc-theme', next); } catch (e) {}
+  });
+})();
+
+/* ------------------------------------------------------------------ *
+ * Manifest at rest
+ * ------------------------------------------------------------------ */
+function renderChecklist() {
+  document.getElementById('mlist').innerHTML = CHECK_LIST.map(([name, cat]) =>
+    `<li class="mrow"><span class="tick" aria-hidden="true"></span>${esc(name)}<span class="cat v">${esc(cat)}</span></li>`
+  ).join('');
+}
+renderChecklist();
+
+/* ------------------------------------------------------------------ *
+ * Helpers
+ * ------------------------------------------------------------------ */
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ------------------------------------------------------------------ *
+ * Scan
+ * ------------------------------------------------------------------ */
+let LAST = null;
+let UNLOCKED = false;
+
+const form = document.getElementById('scanform');
+const errBox = document.getElementById('err');
+const scanBtn = document.getElementById('scanbtn');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errBox.hidden = true;
+  const domain = document.getElementById('domain').value.trim();
+  const intent = (document.querySelector('input[name=intent]:checked') || {}).value || 'mixed';
+  if (!domain) { showErr('Enter a domain to scan.'); return; }
+
+  scanBtn.disabled = true;
+  scanBtn.innerHTML = '<span class="spin"></span>Scanning';
+  document.getElementById('manifest-title').textContent = 'Probing ' + domain;
+  document.getElementById('results').hidden = true;
+  UNLOCKED = false;
+
+  const t0 = Date.now();
+  let data = null;
+  try {
+    const res = await fetch((API_BASE || '') + '/api/scan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ domain, intent }),
+    });
+    data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'The scan could not complete.');
+  } catch (netErr) {
+    if (API_BASE) { showErr(netErr.message); resetBtn(); return; }
+    // No backend reachable: render a clearly-labelled demo report.
+    data = demoResult(domain, intent);
+    data.demo = true;
+  }
+
+  await animateManifest(data);
+  const elapsed = Date.now() - t0;
+  if (elapsed < 1400) await sleep(1400 - elapsed);
+
+  LAST = data;
+  renderResults(data);
+  resetBtn();
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+function resetBtn() {
+  scanBtn.disabled = false;
+  scanBtn.textContent = 'Run the scan';
+}
+function showErr(msg) { errBox.textContent = msg; errBox.hidden = false; }
+
+async function animateManifest(data) {
+  const rows = Array.from(document.querySelectorAll('#mlist .mrow'));
+  const byLabel = {};
+  (data.results || []).forEach((r) => { byLabel[r.label.toLowerCase()] = r; });
+  byLabel['real browser'] = byLabel['real browser (control)'];
+  byLabel['generic script'] = byLabel['generic script (curl)'];
+
+  for (const row of rows) {
+    const name = row.childNodes[1].textContent.trim().toLowerCase();
+    const hit = byLabel[name];
+    row.classList.add('done');
+    row.querySelector('.tick').textContent = '✓';
+    if (hit) {
+      row.dataset.v = hit.verdict;
+      row.querySelector('.v').textContent = hit.verdictLabel;
+      row.querySelector('.v').classList.remove('cat');
+    } else if (name.startsWith('robots')) {
+      row.dataset.v = data.robots.present ? 'allowed' : 'blocked';
+      row.querySelector('.v').textContent = data.robots.contentSignals ? 'declared' : (data.robots.present ? 'no signals' : 'missing');
+      row.querySelector('.v').classList.remove('cat');
+    } else if (name === 'llms.txt') {
+      row.querySelector('.v').textContent = data.robots.llmsTxtPresent ? 'present' : 'absent';
+    }
+    await sleep(48);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Render
+ * ------------------------------------------------------------------ */
+function ringSvg(score, tone) {
+  const R = 62, C = 2 * Math.PI * R;
+  const on = (Math.max(0, Math.min(100, score)) / 100) * C;
+  return `<svg class="ring" viewBox="0 0 150 150" role="img" aria-label="Score ${score} out of 100">
+    <circle cx="75" cy="75" r="${R}" fill="none" stroke="var(--line)" stroke-width="11"></circle>
+    <circle cx="75" cy="75" r="${R}" fill="none" stroke="var(--${tone})" stroke-width="11" stroke-linecap="round"
+      stroke-dasharray="${on.toFixed(1)} ${(C - on).toFixed(1)}" transform="rotate(-90 75 75)"></circle>
+    <text x="75" y="76" text-anchor="middle" font-size="38" font-weight="700" fill="var(--ink)" letter-spacing="-1.5">${score}</text>
+    <text x="75" y="97" text-anchor="middle" font-size="11" font-weight="600" fill="var(--muted)" letter-spacing="1.6">OF 100</text>
+  </svg>`;
+}
+
+function renderResults(d) {
+  const tone = d.score >= 75 ? 'good' : d.score >= 50 ? 'warn' : 'crit';
+  const crit = d.findings.filter((f) => f.severity === 'critical');
+  const teaser = crit[0] || d.findings.find((f) => f.severity === 'warning') || d.findings[0];
+  const rest = d.findings.filter((f) => f !== teaser);
+
+  const el = document.getElementById('results');
+  el.hidden = false;
+  el.innerHTML = `
+    ${d.demo ? '<span class="demo-flag">Demo data — backend not connected</span>' : ''}
+
+    <div class="panel">
+      <div class="scorecard">
+        ${ringSvg(d.score, tone)}
+        <div>
+          <h2 class="posture-name">${esc(d.posture)}</h2>
+          <p class="posture-line">${esc(d.postureLine)}</p>
+          <div class="tally">
+            <span class="chip crit"><span class="n">${d.counts.critical}</span> critical</span>
+            <span class="chip warn"><span class="n">${d.counts.warning}</span> to review</span>
+            <span class="chip good"><span class="n">${d.counts.good}</span> in good shape</span>
+            <span class="chip neutral">${esc(d.intentName)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="scanned">
+        <span>${esc(d.domain)}</span>
+        <span>${d.onCloudflare ? 'Cloudflare edge detected' : 'no Cloudflare edge'}</span>
+        <span>${d.robots.present ? 'robots.txt found' : 'no robots.txt'}</span>
+        <span>${d.robots.contentSignals ? 'Content Signals declared' : 'no Content Signals'}</span>
+        <span>${(d.durationMs / 1000).toFixed(1)}s</span>
+      </div>
+    </div>
+
+    <h2 class="sec">The headline</h2>
+    <p class="sec-sub">${esc(d.intentNote)}</p>
+    <div class="findings">${findingHtml(teaser)}</div>
+
+    <div id="gatewrap"></div>
+  `;
+
+  const gate = document.getElementById('gatewrap');
+  if (UNLOCKED) { renderFull(gate, d, rest); return; }
+
+  gate.innerHTML = `
+    <h2 class="sec">The rest of the report</h2>
+    <p class="sec-sub">${rest.length} more ${rest.length === 1 ? 'finding' : 'findings'}, the full crawler-by-crawler table, and what to change.</p>
+    <div class="gate">
+      <h3>Where should we send it?</h3>
+      <p class="g-sub">Unlock the full report for ${esc(d.domain)}. One email, no list churn.</p>
+      <form class="gateform" id="gateform" novalidate>
+        <input type="text" id="lead-name" name="name" placeholder="First name" autocomplete="given-name" required>
+        <input type="email" id="lead-email" name="email" placeholder="you@company.com" autocomplete="email" required>
+        <div class="hp"><label for="lead-company">Company</label><input type="text" id="lead-company" name="company" tabindex="-1" autocomplete="off"></div>
+        <button class="btn" type="submit" id="gatebtn">Show the full report</button>
+      </form>
+      <div class="err" id="gateerr" hidden></div>
+      <p class="gatenote">We will email you a copy so you can forward it. Unsubscribe any time.</p>
+    </div>
+    <div class="blur" aria-hidden="true" style="margin-top:14px">
+      <div class="findings">${rest.slice(0, 2).map(findingHtml).join('')}</div>
+    </div>
+  `;
+
+  document.getElementById('gateform').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const gErr = document.getElementById('gateerr');
+    gErr.hidden = true;
+    const name = document.getElementById('lead-name').value.trim();
+    const email = document.getElementById('lead-email').value.trim();
+    const company = document.getElementById('lead-company').value;
+    if (!name) { gErr.textContent = 'Add a first name so we know who to address.'; gErr.hidden = false; return; }
+    if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) { gErr.textContent = 'That email address does not look right.'; gErr.hidden = false; return; }
+
+    const btn = document.getElementById('gatebtn');
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Unlocking';
+    try {
+      await fetch((API_BASE || '') + '/api/lead', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name, email, company, domain: d.domain, intent: d.intent,
+          score: d.score, posture: d.posture, criticals: d.counts.critical,
+          referer: document.referrer || null,
+        }),
+      });
+    } catch (e) { /* never block the report on a capture failure */ }
+    UNLOCKED = true;
+    renderFull(document.getElementById('gatewrap'), d, rest);
+    document.getElementById('gatewrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+function renderFull(el, d, rest) {
+  el.innerHTML = `
+    <h2 class="sec">Everything the scan found</h2>
+    <p class="sec-sub">Ordered by what costs you the most if it stays as it is.</p>
+    <div class="findings">${rest.map(findingHtml).join('')}</div>
+
+    <h2 class="sec">Crawler by crawler</h2>
+    <p class="sec-sub">What robots.txt says, and what actually happened when a request wearing that identity hit your homepage.</p>
+    ${tableHtml(d)}
+
+    <h2 class="sec">What this scan cannot tell you</h2>
+    <p class="sec-sub">Worth knowing before you act on any of it.</p>
+    <div class="limits">
+      <ul>
+        <li>These probes identify themselves by user agent from an ordinary IP. Cloudflare verifies real crawlers by signature and network, so a block here can mean either <em>your policy blocked that crawler</em> or <em>your edge caught an unverified impostor</em>. Both are useful signals; only the dashboard separates them.</li>
+        <li>Only the homepage was tested. Rules scoped to a path, a subdomain, or pages carrying ads can behave completely differently.</li>
+        <li>Pay per crawl pricing, AI Crawl Control traffic history, and which rule produced each decision live inside your Cloudflare account. The scan sees the outcome, not the reason.</li>
+        <li>Cloudflare's September 15, 2026 defaults apply to <em>newly onboarded</em> domains. An older zone keeps whatever it had, which is usually nothing.</li>
+      </ul>
+      <p style="margin:16px 0 0"><a class="btn ghost" href="${esc(CONSULT_URL)}" style="text-decoration:none; display:inline-block">Get the inside-the-dashboard review</a></p>
+    </div>
+  `;
+}
+
+function findingHtml(f) {
+  if (!f) return '';
+  return `<article class="finding" data-sev="${esc(f.severity)}">
+    <span class="sev">${esc(f.severity === 'good' ? 'Working' : f.severity === 'info' ? 'Note' : f.severity)}</span>
+    <h4>${esc(f.title)}</h4>
+    <p>${esc(f.detail)}</p>
+    ${f.fix ? `<div class="fix"><b>What to change</b>${esc(f.fix)}</div>` : ''}
+  </article>`;
+}
+
+function tableHtml(d) {
+  const order = ['training', 'agent', 'search', 'control'];
+  const bandName = {
+    training: 'Training crawlers — collect content to train models, send nothing back',
+    agent: 'Agents — fetching a page because a person asked an assistant to',
+    search: 'Search and answer engines — index you and cite you',
+    control: 'Baseline — how a normal visitor is treated',
+  };
+  let rows = '';
+  for (const b of order) {
+    const set = d.results.filter((r) => r.behavior === b);
+    if (!set.length) continue;
+    rows += `<tr class="band"><td colspan="4">${esc(bandName[b])}</td></tr>`;
+    rows += set.map((r) => {
+      const cls = r.probed ? r.verdict.replace(/[^a-z]/g, '') : 'notprobed';
+      const rob = r.robots === 'disallowed' ? 'disallowed'
+        : r.robots === 'disallowed-wildcard' ? 'disallowed (*)'
+        : r.robots === 'no-robots' ? '—' : 'allowed';
+      return `<tr>
+        <td class="name">${esc(r.label)}</td>
+        <td class="vendor">${esc(r.vendor)}</td>
+        <td class="rob">${esc(rob)}</td>
+        <td><span class="vchip ${esc(cls)}">${esc(r.verdictLabel)}${r.status ? ' · ' + r.status : ''}</span></td>
+      </tr>`;
+    }).join('');
+  }
+  return `<div class="tablewrap"><table>
+    <caption>${esc(d.domain)} — ${d.results.filter((r) => r.probed).length} live probes</caption>
+    <thead><tr><th>Crawler</th><th>Operator</th><th>robots.txt</th><th>At the edge</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Demo fallback (used when no backend is reachable)
+ * ------------------------------------------------------------------ */
+function demoResult(domain, intent) {
+  const mk = (id, label, vendor, behavior, verdict, verdictLabel, status, robots) =>
+    ({ id, label, vendor, behavior, probed: true, verdict, verdictLabel, status, robots, crawlerPrice: null, token: label });
+  return {
+    domain: domain || 'example-store.com',
+    intent, intentName: { funnel: 'Funnels / lead gen', content: 'Content / SEO', ecommerce: 'Ecommerce', mixed: 'Mixed' }[intent] || 'Mixed',
+    intentNote: 'Balance discovery against content protection.',
+    scannedAt: new Date().toISOString(), durationMs: 4200,
+    onCloudflare: true, siteReachable: true,
+    robots: { present: true, cloudflareManaged: false, contentSignals: { search: 'yes', 'ai-input': 'yes', 'ai-train': 'no' }, blockedTokens: ['gptbot', 'ccbot'], llmsTxtPresent: false, lineCount: 22 },
+    score: 48, posture: 'Partial', postureLine: 'Some controls are on, but the policy and the enforcement do not fully line up.',
+    counts: { critical: 2, warning: 2, good: 3 },
+    summary: {},
+    results: [
+      mk('browser', 'Real browser (control)', 'Baseline', 'control', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('genericbot', 'Generic script (curl)', 'Baseline', 'control', 'challenged', 'Challenged', 403, 'allowed'),
+      mk('googlebot', 'Googlebot', 'Google', 'search', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('bingbot', 'Bingbot', 'Microsoft', 'search', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('gptbot', 'GPTBot', 'OpenAI', 'training', 'allowed', 'Allowed', 200, 'disallowed'),
+      mk('claudebot', 'ClaudeBot', 'Anthropic', 'training', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('ccbot', 'CCBot', 'Common Crawl', 'training', 'blocked', 'Blocked', 403, 'disallowed'),
+      mk('bytespider', 'Bytespider', 'ByteDance', 'training', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('metabot', 'meta-externalagent', 'Meta', 'training', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('amazonbot', 'Amazonbot', 'Amazon', 'training', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('chatgptuser', 'ChatGPT-User', 'OpenAI', 'agent', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('claudeuser', 'Claude-User', 'Anthropic', 'agent', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('perplexityuser', 'Perplexity-User', 'Perplexity', 'agent', 'allowed', 'Allowed', 200, 'allowed'),
+      mk('oaisearch', 'OAI-SearchBot', 'OpenAI', 'search', 'blocked', 'Blocked', 403, 'allowed'),
+      mk('perplexitybot', 'PerplexityBot', 'Perplexity', 'search', 'blocked', 'Blocked', 403, 'allowed'),
+      mk('claudesearch', 'Claude-SearchBot', 'Anthropic', 'search', 'blocked', 'Blocked', 403, 'allowed'),
+      { id: 'google-extended', label: 'Google-Extended', vendor: 'Google', behavior: 'training', probed: false, verdict: 'not-probed', verdictLabel: 'robots.txt only', status: null, robots: 'allowed', token: 'Google-Extended' },
+      { id: 'applebot-extended', label: 'Applebot-Extended', vendor: 'Apple', behavior: 'training', probed: false, verdict: 'not-probed', verdictLabel: 'robots.txt only', status: null, robots: 'allowed', token: 'Applebot-Extended' },
+    ],
+    findings: [
+      { severity: 'critical', title: 'Stated policy is not enforced at the edge',
+        detail: 'robots.txt asks training crawlers to stay out, but GPTBot still received a 200 response. robots.txt is a sign on the door; nothing is checking it.',
+        fix: 'Back the stated policy with an actual block: Cloudflare AI bot categories, or a WAF custom rule on the verified bot category.' },
+      { severity: 'critical', title: 'AI answer engines are blocked too',
+        detail: 'OAI-SearchBot, PerplexityBot, Claude-SearchBot cannot reach the site. These are the crawlers that put citations and links in AI answers. Blocking them is the AI equivalent of deindexing.',
+        fix: 'Separate the categories: block Training, allow Search. Cloudflare treats them as distinct settings.' },
+      { severity: 'warning', title: 'Training crawlers are getting through (5 of 6 tested)',
+        detail: 'Reached the site: GPTBot, ClaudeBot, Bytespider, meta-externalagent, Amazonbot. These crawlers collect content to train or fine-tune models and send no traffic back.',
+        fix: 'In Cloudflare, go to Security Settings and set the Training category to Block. It applies across the zone on every plan.' },
+      { severity: 'warning', title: 'No llms.txt published',
+        detail: 'There is no curated summary telling assistants what this site sells and which pages matter. Crawlers that are allowed in are guessing from raw HTML.',
+        fix: 'Publish an llms.txt with your core offers and canonical links.' },
+      { severity: 'good', title: 'Cloudflare is in front of this site',
+        detail: 'Responses carry Cloudflare edge headers, so the AI bot controls, managed robots.txt, and pay per crawl are all available on this zone.', fix: null },
+      { severity: 'good', title: 'Content Signals policy is declared',
+        detail: 'robots.txt states: search=yes, ai-input=yes, ai-train=no. This is the machine-readable statement of how the content may be used.', fix: null },
+      { severity: 'good', title: 'Google and Bing crawlers are getting through',
+        detail: 'Classic search indexing is unaffected by whatever AI rules are in place.', fix: null },
+    ],
+  };
+}
+
+/* Auto-run a demo report when there is no backend, so the page is never an empty shell. */
+if (!API_BASE) {
+  (async () => {
+    const probe = await fetch('/api/health').then((r) => r.ok).catch(() => false);
+    if (probe) return;
+    document.getElementById('domain').value = 'example-store.com';
+    const d = demoResult('example-store.com', 'mixed');
+    d.demo = true;
+    LAST = d;
+    renderResults(d);
+  })();
+}
+</script>
+</body>
+</html>
