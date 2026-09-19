@@ -1,12 +1,13 @@
 /**
- * AI Crawler Audit — scan engine + lead capture
+ * AI Crawler Audit — scan engine
  * Cloudflare Worker. Deploy with: npx wrangler deploy
  *
  * Routes
- *   POST /api/scan   { domain, intent }            -> teaser + full result
- *   POST /api/lead   { name, email, domain, ... }  -> stores lead, forwards to CRM webhook
+ *   POST /api/scan          { domain, intent } -> teaser + scanId (full result held in KV)
+ *   GET  /api/report?id=…   -> full result for a scanId (shown after the ClickFunnels opt-in)
  *   GET  /api/health
  * Everything else is served from the static assets binding (public/).
+ * Leads are captured by the ClickFunnels SDK on the page, not by this Worker.
  */
 
 /* ------------------------------------------------------------------ *
@@ -159,7 +160,7 @@ async function fetchText(url, maxBytes = 120000) {
 
 function parseRobots(text) {
   const out = {
-    present: Boolean(text && text.trim()),
+    present: Boolean(text?.trim()),
     raw: text || '',
     groups: [],              // [{ agents:[], disallowAll:bool, disallows:[], signals:{} }]
     contentSignals: null,    // { search, 'ai-input', 'ai-train' }
@@ -469,7 +470,6 @@ function analyze({ domain, intent, results, robots, onCloudflare, siteReachable 
 
   // --- The consistency check: stated policy vs actual enforcement ---
   const statedNoTrain = cs && String(cs['ai-train'] || '').startsWith('n');
-  const robotsBlocksTraining = training.filter((r) => r.robots === 'disallowed');
   const leaking = training.filter((r) => !stopped(r) && (statedNoTrain || r.robots === 'disallowed'));
   if (leaking.length) {
     findings.push({
@@ -618,12 +618,27 @@ function analyze({ domain, intent, results, robots, onCloudflare, siteReachable 
  * ------------------------------------------------------------------ */
 
 async function rateLimit(env, ip, limit = 12, windowSec = 600) {
-  if (!env.LEADS) return true; // KV not bound: skip rather than fail
+  if (!env.KV) return true; // KV not bound: skip rather than fail
   const key = `rl:${ip}:${Math.floor(Date.now() / (windowSec * 1000))}`;
-  const n = parseInt((await env.LEADS.get(key)) || '0', 10);
+  const n = parseInt((await env.KV.get(key)) || '0', 10);
   if (n >= limit) return false;
-  await env.LEADS.put(key, String(n + 1), { expirationTtl: windowSec + 60 });
+  await env.KV.put(key, String(n + 1), { expirationTtl: windowSec + 60 });
   return true;
+}
+
+/* ------------------------------------------------------------------ *
+ * Gating: the scan response is a teaser; the full result stays in KV
+ * until the report page asks for it after the ClickFunnels opt-in.
+ * ------------------------------------------------------------------ */
+
+const SCAN_TTL_SEC = 60 * 60 * 24 * 30;
+const SCAN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// Headline = first critical, else first warning, else first finding (findings are pre-sorted by severity).
+function toTeaser(result) {
+  const { findings, ...rest } = result;
+  const headline = findings.find((f) => f.severity === 'critical') || findings.find((f) => f.severity === 'warning') || findings[0];
+  return { ...rest, findings: headline ? [headline] : [], hiddenFindings: Math.max(0, findings.length - 1) };
 }
 
 /* ------------------------------------------------------------------ *
@@ -644,10 +659,8 @@ function corsHeaders() {
   };
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
-
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders() });
@@ -667,50 +680,21 @@ export default {
       const intent = ['funnel', 'content', 'ecommerce', 'mixed'].includes(body.intent) ? body.intent : 'mixed';
       try {
         const result = await runScan(domain, intent);
-        return json(result);
+        if (!env.KV) return json(toTeaser(result)); // no KV: nothing to unlock later
+        const scanId = crypto.randomUUID();
+        await env.KV.put(`scan:${scanId}`, JSON.stringify(result), { expirationTtl: SCAN_TTL_SEC });
+        return json({ ...toTeaser(result), scanId });
       } catch (e) {
         return json({ error: 'The scan could not complete.', detail: String(e.message || e) }, 500);
       }
     }
 
-    if (url.pathname === '/api/lead' && request.method === 'POST') {
-      let body;
-      try { body = await request.json(); } catch { return json({ error: 'Invalid request body.' }, 400); }
-
-      const name = String(body.name || '').trim().slice(0, 120);
-      const email = String(body.email || '').trim().slice(0, 200);
-      const domain = String(body.domain || '').trim().slice(0, 253);
-
-      if (!name) return json({ error: 'Name is required.' }, 400);
-      if (!EMAIL_RE.test(email)) return json({ error: 'Enter a valid email address.' }, 400);
-      if (body.company) return json({ ok: true }); // honeypot: silently accept, store nothing
-
-      const lead = {
-        name, email, domain,
-        intent: String(body.intent || 'mixed'),
-        score: Number(body.score) || null,
-        posture: String(body.posture || ''),
-        criticals: Number(body.criticals) || 0,
-        country: request.headers.get('cf-ipcountry') || null,
-        ip: request.headers.get('cf-connecting-ip') || null,
-        userAgent: request.headers.get('user-agent') || null,
-        referer: body.referer || null,
-        createdAt: new Date().toISOString(),
-      };
-
-      if (env.LEADS) {
-        ctx.waitUntil(env.LEADS.put(`lead:${Date.now()}:${crypto.randomUUID()}`, JSON.stringify(lead)));
-      }
-      if (env.LEAD_WEBHOOK_URL) {
-        ctx.waitUntil(
-          fetch(env.LEAD_WEBHOOK_URL, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(lead),
-          }).catch(() => {})
-        );
-      }
-      return json({ ok: true });
+    if (url.pathname === '/api/report' && request.method === 'GET') {
+      const id = url.searchParams.get('id') || '';
+      if (!SCAN_ID_RE.test(id)) return json({ error: 'Missing or invalid report id.' }, 400);
+      const stored = env.KV ? await env.KV.get(`scan:${id}`) : null;
+      if (!stored) return json({ error: 'That report has expired. Run a new scan.' }, 404);
+      return new Response(stored, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...corsHeaders() } });
     }
 
     if (url.pathname.startsWith('/api/')) return json({ error: 'Not found.' }, 404);
@@ -720,4 +704,4 @@ export default {
   },
 };
 
-export { normalizeDomain, parseRobots, classify, analyze, CRAWLERS };
+export { normalizeDomain, parseRobots, classify, analyze, toTeaser, CRAWLERS };

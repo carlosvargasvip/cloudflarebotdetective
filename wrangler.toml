@@ -8,18 +8,11 @@ directory = "./public"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 
-# Lead storage + rate limiting.
-# Create it once:  npx wrangler kv namespace create LEADS
-# then paste the returned id below.
+# Scan results (scan:<id>, 30-day TTL) + rate-limit counters (rl:<ip>:<window>).
+# Leads are captured by the ClickFunnels SDK, not stored here.
 [[kv_namespaces]]
-binding = "LEADS"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
-
-[vars]
-# Optional. Any endpoint that accepts a JSON POST works:
-# ClickFunnels webhook, GoHighLevel inbound webhook, Zapier/Make catch hook, n8n.
-# Set it as a secret instead if you prefer:  npx wrangler secret put LEAD_WEBHOOK_URL
-LEAD_WEBHOOK_URL = ""
+binding = "KV"
+id = "f7578d05b1094b1689e807383e562ac4"
 
 # Custom domain (optional). Uncomment and point at a zone you control.
 # [[routes]]

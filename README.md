@@ -1,6 +1,6 @@
 # AI Crawler Gate Check
 
-A lead-magnet scanner. Someone types their domain, the scan runs from the outside, they see a score and the worst finding, and the rest of the report unlocks after name and email.
+A lead-magnet scanner. Someone types their domain, the scan runs from the outside, they see a score and the worst finding, and the rest of the report unlocks after a ClickFunnels opt-in (name and email).
 
 Runs entirely on Cloudflare Workers. No origin server, no framework, no build step.
 
@@ -21,55 +21,45 @@ The report ends with what the scan cannot see from outside, which is the natural
 ## Deploy
 
 ```bash
-npm install -g wrangler        # or use npx
-cd ai-crawler-audit
-
+npm install                    # Biome only; the Worker has no runtime dependencies
 npx wrangler login
-npx wrangler kv namespace create LEADS
-# paste the returned id into wrangler.toml under [[kv_namespaces]]
-
 npx wrangler deploy
 ```
 
-That gives you `https://ai-crawler-audit.<your-subdomain>.workers.dev`.
+That serves `https://ai-crawler-audit.<your-subdomain>.workers.dev` (currently `https://ai-crawler-audit.carlosvargas.workers.dev`). The `KV` namespace id is already in `wrangler.toml`; on a fresh account create one with `npx wrangler kv namespace create ai-crawler-audit` and replace it.
 
-For a custom domain, uncomment the `[[routes]]` block in `wrangler.toml` and point it at a hostname on a zone in the same account.
+For a custom domain, uncomment the `[[routes]]` block in `wrangler.toml`, then update both ClickFunnels pages' `external_url` to the new host (the page tokens stay the same).
 
-### Wire lead capture
-
-Set the webhook to anything that takes a JSON POST:
-
-```bash
-npx wrangler secret put LEAD_WEBHOOK_URL
-```
-
-The payload:
-
-```json
-{
-  "name": "Ana",
-  "email": "ana@example.com",
-  "domain": "example-store.com",
-  "intent": "ecommerce",
-  "score": 48,
-  "posture": "Partial",
-  "criticals": 2,
-  "country": "US",
-  "createdAt": "2026-09-19T14:02:11.000Z"
-}
-```
-
-Leads also land in KV regardless, so nothing is lost if the webhook is down. Pull them with:
-
-```bash
-npx wrangler kv key list --binding LEADS --prefix "lead:"
-```
-
-### Local dev
+### Local dev and checks
 
 ```bash
 npx wrangler dev
+npm test        # node:test unit tests for parsing, classification, scoring, teaser
+npm run lint    # Biome
 ```
+
+---
+
+## Lead capture: ClickFunnels SDK
+
+The page is two external (SDK) steps of the **AI Crawler Gate Check** funnel in ClickFunnels:
+
+| Step | URL | Page token |
+|---|---|---|
+| 1. Scan + Opt-in | `/` | `cfp_Kx6WBDvZALsM87OEfw6FSOgr` |
+| 2. Full Report | `/report` | `cfp_K432oeUKtS5mrEMcr5zybPOg` |
+
+Both steps are served by the same `public/index.html`; a head script picks the token for the current path.
+
+Flow:
+
+1. `POST /api/scan` returns a **teaser** (score, posture, per-crawler verdicts, the headline finding) plus a `scanId`. The full result is held in KV for 30 days.
+2. The gate form is an SDK opt-in: `first-name`, `email`, and hidden `custom-attribute:*` fields (`scanned_domain`, `site_type`, `crawler_score`, `crawler_posture`, `crawler_criticals`, `scan_id`) land on the ClickFunnels contact.
+3. On submit the SDK records the opt-in and redirects to `/report`, which loads `GET /api/report?id=<scanId>` and renders the full report. The browser remembers the scan and the opt-in in `localStorage` (the redirect drops query strings).
+
+The gate is enforced in the browser: `/report` only renders after this browser submitted the opt-in, but the report API itself is not tied to a verified contact. To make it strict, add a ClickFunnels webhook on opt-in that marks `scan:<id>` unlocked, and have `/api/report` check it.
+
+The funnel is in **live mode**, so submissions only work at the registered URLs — `wrangler dev` / preview hosts load the SDK but it stays dormant (`url_mismatch`). Switch the funnel to test mode in ClickFunnels to exercise the flow locally without saving contacts.
 
 ---
 
@@ -77,33 +67,17 @@ npx wrangler dev
 
 | File | What it does |
 |---|---|
-| `src/worker.js` | Scan engine, scoring, lead capture, rate limiting, SSRF guards |
-| `public/index.html` | The whole front end. One file, no dependencies beyond Google Fonts |
+| `src/worker.js` | Scan engine, scoring, teaser/report gating, rate limiting, SSRF guards |
+| `public/index.html` | The whole front end (both funnel steps). One file, no dependencies beyond Google Fonts and the ClickFunnels SDK |
+| `test/worker.test.js` | Unit tests (`npm test`) |
 | `wrangler.toml` | Bindings and config |
 
 ### Front-end query params
 
-- `?api=https://your-worker.workers.dev` points a copy of the HTML at a Worker on another origin. Useful for embedding the page inside ClickFunnels or any other host.
+- `?api=https://your-worker.workers.dev` points a copy of the HTML at a Worker on another origin.
 - `?cta=https://yourdomain.com/book` sets the destination of the "inside-the-dashboard review" button at the bottom of the report.
 
-With no backend reachable, the page renders a clearly labelled demo report so it is never an empty shell.
-
----
-
-## Embedding in ClickFunnels
-
-Two options.
-
-**Iframe.** Drop a custom HTML element on the page:
-
-```html
-<iframe src="https://crawlercheck.yourdomain.com/?cta=https://yourdomain.com/book"
-        style="width:100%;border:0;height:1400px" title="AI Crawler Gate Check"></iframe>
-```
-
-Height is the annoyance. Add a `postMessage` resize handshake if it bothers you.
-
-**Native form.** Skip the built-in gate, put a CF optin element on the page, and call the Worker's `/api/scan` from your own script. `access-control-allow-origin` is already `*`, so a browser on your funnel domain can call it directly. Gate the render behind your own form submit and let ClickFunnels own the contact record.
+Both are remembered for the `/report` step. With no backend reachable, the page renders a clearly labelled demo report (its gate unlocks locally and never sends a lead).
 
 ---
 
@@ -159,8 +133,7 @@ What to actually open in the client's Cloudflare account, in order:
 
 ## Notes
 
-- Rate limited to 12 scans per IP per 10 minutes, backed by KV. Adjust in `rateLimit()`.
+- Rate limited to 12 scans per IP per 10 minutes, backed by KV (`rl:` keys). Adjust in `rateLimit()`.
 - Private ranges, localhost and `.internal` hosts are refused.
 - Each probe times out at 9 seconds.
-- The lead form has a honeypot field. Submissions that fill it get a `200` and are stored nowhere.
 - Cloudflare's September 15, 2026 defaults apply to newly onboarded domains. Existing zones were left alone, which is exactly why so many of them score badly.

@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AI Crawler Gate Check</title>
+<!-- ClickFunnels SDK: "/" is the opt-in step, "/report" the next step. One token per step. -->
+<meta name="cf-page-token" content="">
+<script>
+(function () {
+  var TOKENS = { scan: 'cfp_Kx6WBDvZALsM87OEfw6FSOgr', report: 'cfp_K432oeUKtS5mrEMcr5zybPOg' };
+  var step = /^\/report\/?$/.test(location.pathname) ? 'report' : 'scan';
+  document.querySelector('meta[name="cf-page-token"]').setAttribute('content', TOKENS[step]);
+})();
+</script>
+<script src="https://sdk.myclickfunnels.com/sdk.js" defer></script>
 <meta name="description" content="See which AI crawlers your site lets in, which it blocks, and whether your stated policy is actually enforced.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -281,7 +291,6 @@ tr.band td{
 }
 .gateform .btn{width:100%; padding:13px}
 .gatenote{font-size:12px; color:var(--muted); margin:14px 0 0}
-.hp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden}
 
 .blur{position:relative; user-select:none}
 .blur > *{filter:blur(5px); opacity:.55; pointer-events:none}
@@ -365,8 +374,19 @@ footer.site .wrap{padding-block:20px; font-size:12.5px; color:var(--muted); disp
  * Config
  * ------------------------------------------------------------------ */
 const params = new URLSearchParams(location.search);
-const API_BASE = (params.get('api') || '').replace(/\/$/, '');
-const CONSULT_URL = params.get('cta') || '#';
+const IS_REPORT = /^\/report\/?$/.test(location.pathname);
+
+// The ClickFunnels redirect to /report drops our query string, so the last scan's context lives in localStorage.
+const STORE_KEY = 'acgc-last-scan';
+function loadLast() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { return null; }
+}
+function saveLast(v) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(v)); } catch (e) {}
+}
+const STORED = IS_REPORT ? loadLast() : null;
+const API_BASE = (params.get('api') || STORED?.api || '').replace(/\/$/, '');
+const CONSULT_URL = params.get('cta') || STORED?.cta || '#';
 
 const CATEGORY_LABEL = {
   control: 'baseline', training: 'training', agent: 'agent', search: 'search'
@@ -463,6 +483,9 @@ form.addEventListener('submit', async (e) => {
   if (elapsed < 1400) await sleep(1400 - elapsed);
 
   LAST = data;
+  if (data.scanId) {
+    saveLast({ scanId: data.scanId, domain: data.domain, api: API_BASE, cta: CONSULT_URL === '#' ? '' : CONSULT_URL, optedIn: false });
+  }
   renderResults(data);
   resetBtn();
   document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -516,11 +539,12 @@ function ringSvg(score, tone) {
   </svg>`;
 }
 
-function renderResults(d) {
+function renderResults(d, full) {
   const tone = d.score >= 75 ? 'good' : d.score >= 50 ? 'warn' : 'crit';
   const crit = d.findings.filter((f) => f.severity === 'critical');
   const teaser = crit[0] || d.findings.find((f) => f.severity === 'warning') || d.findings[0];
   const rest = d.findings.filter((f) => f !== teaser);
+  const hiddenCount = d.hiddenFindings ?? rest.length;
 
   const el = document.getElementById('results');
   el.hidden = false;
@@ -558,56 +582,61 @@ function renderResults(d) {
   `;
 
   const gate = document.getElementById('gatewrap');
-  if (UNLOCKED) { renderFull(gate, d, rest); return; }
+  if (full || UNLOCKED) { renderFull(gate, d, rest); return; }
 
+  // Demo data has no scanId: unlock in place and never send a demo lead to ClickFunnels.
+  const live = Boolean(d.scanId);
   gate.innerHTML = `
     <h2 class="sec">The rest of the report</h2>
-    <p class="sec-sub">${rest.length} more ${rest.length === 1 ? 'finding' : 'findings'}, the full crawler-by-crawler table, and what to change.</p>
+    <p class="sec-sub">${hiddenCount} more ${hiddenCount === 1 ? 'finding' : 'findings'}, the full crawler-by-crawler table, and what to change.</p>
     <div class="gate">
       <h3>Where should we send it?</h3>
       <p class="g-sub">Unlock the full report for ${esc(d.domain)}. One email, no list churn.</p>
-      <form class="gateform" id="gateform" novalidate>
-        <input type="text" id="lead-name" name="name" placeholder="First name" autocomplete="given-name" required>
-        <input type="email" id="lead-email" name="email" placeholder="you@company.com" autocomplete="email" required>
-        <div class="hp"><label for="lead-company">Company</label><input type="text" id="lead-company" name="company" tabindex="-1" autocomplete="off"></div>
+      <form class="gateform" id="gateform">
+        <input type="text" id="lead-name" name="first_name" placeholder="First name" autocomplete="given-name" required ${live ? 'data-cf-element="first-name"' : ''}>
+        <input type="email" id="lead-email" name="email" placeholder="you@company.com" autocomplete="email" required ${live ? 'data-cf-element="email"' : ''}>
+        ${live ? `
+        <input type="hidden" name="scanned_domain" value="${esc(d.domain)}" data-cf-element="custom-attribute:scanned_domain">
+        <input type="hidden" name="site_type" value="${esc(d.intent)}" data-cf-element="custom-attribute:site_type">
+        <input type="hidden" name="crawler_score" value="${esc(d.score)}" data-cf-element="custom-attribute:crawler_score">
+        <input type="hidden" name="crawler_posture" value="${esc(d.posture)}" data-cf-element="custom-attribute:crawler_posture">
+        <input type="hidden" name="crawler_criticals" value="${esc(d.counts.critical)}" data-cf-element="custom-attribute:crawler_criticals">
+        <input type="hidden" name="scan_id" value="${esc(d.scanId)}" data-cf-element="custom-attribute:scan_id">` : ''}
         <button class="btn" type="submit" id="gatebtn">Show the full report</button>
       </form>
       <div class="err" id="gateerr" hidden></div>
       <p class="gatenote">We will email you a copy so you can forward it. Unsubscribe any time.</p>
     </div>
     <div class="blur" aria-hidden="true" style="margin-top:14px">
-      <div class="findings">${rest.slice(0, 2).map(findingHtml).join('')}</div>
+      <div class="findings">${PLACEHOLDER_FINDINGS.map(findingHtml).join('')}</div>
     </div>
   `;
 
-  document.getElementById('gateform').addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const gErr = document.getElementById('gateerr');
-    gErr.hidden = true;
-    const name = document.getElementById('lead-name').value.trim();
-    const email = document.getElementById('lead-email').value.trim();
-    const company = document.getElementById('lead-company').value;
-    if (!name) { gErr.textContent = 'Add a first name so we know who to address.'; gErr.hidden = false; return; }
-    if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) { gErr.textContent = 'That email address does not look right.'; gErr.hidden = false; return; }
+  const gateForm = document.getElementById('gateform');
+  if (live) {
+    // The ClickFunnels SDK owns this submit: it posts the opt-in and redirects to the next funnel step (/report).
+    // We only record that this browser opted in, so /report will show the full result.
+    gateForm.addEventListener('submit', () => {
+      const btn = document.getElementById('gatebtn');
+      btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Unlocking';
+      const last = loadLast();
+      if (last && last.scanId === d.scanId) saveLast({ ...last, optedIn: true });
+    });
+    return;
+  }
 
-    const btn = document.getElementById('gatebtn');
-    btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Unlocking';
-    try {
-      await fetch((API_BASE || '') + '/api/lead', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          name, email, company, domain: d.domain, intent: d.intent,
-          score: d.score, posture: d.posture, criticals: d.counts.critical,
-          referer: document.referrer || null,
-        }),
-      });
-    } catch (e) { /* never block the report on a capture failure */ }
+  gateForm.addEventListener('submit', (ev) => {
+    ev.preventDefault();
     UNLOCKED = true;
     renderFull(document.getElementById('gatewrap'), d, rest);
     document.getElementById('gatewrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
+
+const PLACEHOLDER_FINDINGS = [
+  { severity: 'warning', title: 'Training crawlers are getting through', detail: 'Several crawlers that collect content for model training reached the homepage without being challenged.', fix: 'Set the Training category to Block.' },
+  { severity: 'good', title: 'Classic search crawlers are getting through', detail: 'Google and Bing indexing is unaffected by the AI rules in place.', fix: null },
+];
 
 function renderFull(el, d, rest) {
   el.innerHTML = `
@@ -735,8 +764,41 @@ function demoResult(domain, intent) {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * /report — the funnel step ClickFunnels redirects to after the opt-in
+ * ------------------------------------------------------------------ */
+async function showReport() {
+  document.querySelector('.hero').hidden = true;
+  const el = document.getElementById('results');
+  el.hidden = false;
+  const last = STORED;
+  const again = '<p style="margin-top:16px"><a class="btn" href="/" style="text-decoration:none; display:inline-block">Run a scan</a></p>';
+
+  if (!last?.scanId) {
+    el.innerHTML = `<h2 class="sec">No report yet</h2><p class="sec-sub">Run a scan first, then unlock the full report.</p>${again}`;
+    return;
+  }
+  if (!last.optedIn) {
+    el.innerHTML = `<h2 class="sec">Unlock your report</h2><p class="sec-sub">Enter your name and email under the scan results for ${esc(last.domain)} to see the full report.</p>${again}`;
+    return;
+  }
+
+  el.innerHTML = '<p class="sec-sub"><span class="spin"></span>Loading your report</p>';
+  try {
+    const res = await fetch(`${API_BASE}/api/report?id=${encodeURIComponent(last.scanId)}`);
+    const d = await res.json();
+    if (!res.ok || d.error) throw new Error(d.error || 'The report could not be loaded.');
+    LAST = d;
+    renderResults(d, true);
+  } catch (e) {
+    el.innerHTML = `<h2 class="sec">Report unavailable</h2><p class="sec-sub">${esc(e.message)}</p>${again}`;
+  }
+}
+
+if (IS_REPORT) showReport();
+
 /* Auto-run a demo report when there is no backend, so the page is never an empty shell. */
-if (!API_BASE) {
+if (!IS_REPORT && !API_BASE) {
   (async () => {
     const probe = await fetch('/api/health').then((r) => r.ok).catch(() => false);
     if (probe) return;
