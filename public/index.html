@@ -319,10 +319,47 @@ footer.site .wrap{padding-block:22px; font-size:13.5px; color:var(--faint); disp
   display:inline-block; margin-bottom:14px;
 }
 
+/* report toolbar + print-only header */
+.reportbar{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin:44px 0 20px}
+.reportbar h2.sec{margin:0 0 6px}
+.reportbar .sec-sub{margin:0}
+.printhead{display:none}
+
 .spin{display:inline-block; width:14px; height:14px; border:2.5px solid currentColor; border-right-color:transparent; border-radius:50%; animation:sp .7s linear infinite; vertical-align:-2px; margin-right:8px}
 @keyframes sp{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){
   *{animation-duration:.01ms !important; transition-duration:.01ms !important}
+}
+
+/* ---------- print / save as PDF ---------- */
+@media print{
+  @page{margin:14mm 12mm}
+  html,body{background:#fff}
+  body{font-size:11.5pt}
+  *{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+
+  /* chrome that means nothing on paper */
+  header.site, footer.site, .hero, .modal, .lockcta, .blur, .reportbar .btn, .demo-flag, .limits .btn{display:none !important}
+
+  .wrap{max-width:none; padding-inline:0}
+  .results{padding:0}
+  .printhead{display:block; margin-bottom:16px}
+  .printhead .ph-title{font:700 20pt/1.15 var(--font-ui); letter-spacing:-.02em; margin:0 0 4px}
+  .printhead .ph-meta{font:400 9.5pt/1.4 var(--font-mono); color:#555; margin:0}
+
+  .panel, .finding, .tablewrap, .limits, .gate{box-shadow:none; border-color:#D8D8E2}
+  h2.sec{margin:18pt 0 4pt; font-size:14pt; break-after:avoid}
+  .sec-sub{font-size:10pt; margin-bottom:8pt}
+  .finding, tr, .scorecard{break-inside:avoid}
+  .findings{gap:8pt}
+  .finding{padding:12pt 14pt}
+  .finding h4{font-size:11.5pt}
+  .finding p, .finding .fix{font-size:10pt}
+  table{min-width:0; font-size:9.5pt}
+  th,td{padding:5pt 8pt}
+  thead{display:table-header-group}
+  .scanned{padding:8pt 14pt}
+  a{color:inherit; text-decoration:none}
 }
 </style>
 </head>
@@ -700,9 +737,17 @@ const PLACEHOLDER_FINDINGS = [
 function renderFull(el, d, rest) {
   document.body.style.overflow = '';
   CLOSE_GATE = null;
+  // Browsers name the saved PDF after the document title.
+  document.title = `AI Crawler Gate Check — ${d.domain}`;
+  const scannedOn = new Date(d.scannedAt || Date.now()).toLocaleString();
   el.innerHTML = `
-    <h2 class="sec">Everything the scan found</h2>
-    <p class="sec-sub">Ordered by what costs you the most if it stays as it is.</p>
+    <div class="reportbar">
+      <div>
+        <h2 class="sec">Everything the scan found</h2>
+        <p class="sec-sub">Ordered by what costs you the most if it stays as it is.</p>
+      </div>
+      <button class="btn ghost" type="button" id="pdfbtn">Download PDF</button>
+    </div>
     <div class="findings">${rest.map(findingHtml).join('')}</div>
 
     <h2 class="sec">Crawler by crawler</h2>
@@ -721,6 +766,18 @@ function renderFull(el, d, rest) {
       <p style="margin:16px 0 0"><a class="btn ghost" href="${esc(CONSULT_URL)}" style="text-decoration:none; display:inline-block">Get the inside-the-dashboard review</a></p>
     </div>
   `;
+
+  // Print-only cover line, so a saved PDF says what it is and when it was run.
+  const head = document.createElement('div');
+  head.className = 'printhead';
+  head.innerHTML = `
+    <p class="ph-title">AI Crawler Gate Check — ${esc(d.domain)}</p>
+    <p class="ph-meta">Score ${num(d.score)}/100 · ${esc(d.posture)} · scanned ${esc(scannedOn)}</p>
+  `;
+  const results = document.getElementById('results');
+  if (!results.querySelector('.printhead')) results.prepend(head);
+
+  document.getElementById('pdfbtn').addEventListener('click', () => window.print());
 }
 
 function findingHtml(f) {

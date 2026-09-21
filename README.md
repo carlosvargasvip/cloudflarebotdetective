@@ -77,6 +77,8 @@ The funnel is in **live mode**, so submissions only work at the registered URLs 
 - `?api=https://your-worker.workers.dev` points a copy of the HTML at a Worker on another origin.
 - `?cta=https://yourdomain.com/book` sets the destination of the "inside-the-dashboard review" button at the bottom of the report.
 
+The unlocked report has a **Download PDF** button: it applies a print stylesheet (no nav, no blurred teaser, table and findings kept whole, a title line with domain/score/date) and opens the browser's print dialog, where the visitor picks "Save as PDF". No libraries, and the text stays selectable. The saved file is named after `document.title` — "AI Crawler Gate Check — <domain>".
+
 Both are remembered for the `/report` step. With no backend reachable, the page renders a clearly labelled demo report (its gate unlocks locally and never sends a lead).
 
 ---

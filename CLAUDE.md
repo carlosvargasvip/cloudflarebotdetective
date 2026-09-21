@@ -45,6 +45,10 @@ Workspace "Carlos Vargas" (`RvgMoJ`), funnel "AI Crawler Gate Check" (`NDKoWg`, 
 - Probes still follow redirects, so the host guard only covers the first hop — keep that in mind when touching fetch logic.
 - `?api=` points the page at an allowlisted Worker origin (for a copy of the HTML hosted elsewhere), `?cta=` sets the booking link. If `/api/health` fails, the page renders a labelled demo report — a "working" page may not be hitting the backend.
 
+## PDF export
+
+The full report's **Download PDF** button calls `window.print()`; everything else is the `@media print` block in `index.html`. `renderFull()` sets `document.title` (the saved filename) and prepends `.printhead` (hidden on screen). If you add report sections, check they don't break across pages — `break-inside:avoid` is set per finding and table row.
+
 ## Style & git
 
 - 2-space indent, single quotes, semicolons; separate sections with the existing `/* ---- * Section * ---- */` banner comments.
