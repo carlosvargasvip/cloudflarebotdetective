@@ -57,6 +57,12 @@ Flow:
 2. The gate form is an SDK opt-in: `first-name`, `email`, and hidden `custom-attribute:*` fields (`scanned_domain`, `site_type`, `crawler_score`, `crawler_posture`, `crawler_criticals`, `scan_id`) land on the ClickFunnels contact.
 3. On submit the SDK records the opt-in and redirects to `/report`, which loads `GET /api/report?id=<scanId>` and renders the full report. The browser remembers the scan and the opt-in in `localStorage` (the redirect drops query strings).
 
+### Embedded on a ClickFunnels page
+
+Funnel step 3, "AI-Bot-Scan" (`https://www.carlosvargas.com/ai-bot-scan-page`), embeds `/` in a fixed-height cross-origin iframe. The SDK redirects the frame it was submitted in, so without help the report opens inside that box — address bar still on the CF page, report scrolling in a 900px window, and the scan context stuck in third-party storage that Safari and Firefox block.
+
+So `/report` hands itself to the top window when it is framed: it posts `{type:'acgc-open-report', url}` to the parent (and also tries a direct top navigation), falling back to rendering in place after 1.8s. `?id=<scanId>` carries the scan to the newly first-party origin. The CF page holds the matching listener in its footer code, which accepts the message only from the Worker's origin and only for a `/report` URL — update its `ORIGIN` if the Worker moves.
+
 The gate is enforced in the browser: `/report` only renders after this browser submitted the opt-in, but the report API itself is not tied to a verified contact. To make it strict, add a ClickFunnels webhook on opt-in that marks `scan:<id>` unlocked, and have `/api/report` check it.
 
 The funnel is in **live mode**, so submissions only work at the registered URLs — `wrangler dev` / preview hosts load the SDK but it stays dormant (`url_mismatch`). Switch the funnel to test mode in ClickFunnels to exercise the flow locally without saving contacts.
