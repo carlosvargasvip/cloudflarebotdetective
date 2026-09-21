@@ -42,8 +42,8 @@ Workspace "Carlos Vargas" (`RvgMoJ`), funnel "AI Crawler Gate Check" (`NDKoWg`, 
 
 - Scoring lives in `analyze()`: additive points per check, capped at 40 if Googlebot/Bingbot is blocked, then −12 per critical and −4 per warning, clamped 0–100. Finding severity can depend on `intent`. Report copy is hard-coded English there.
 - Add or change crawlers only in the `CRAWLERS` registry (`probe: false` = robots.txt token only); probe count follows automatically. The front end's `CHECK_LIST` labels must match `CRAWLERS` labels for the manifest animation. Probes time out at `PROBE_TIMEOUT_MS` (9s).
-- SSRF guard is a hostname regex blocklist only — keep it in mind when touching `normalizeDomain`/fetch logic.
-- `?api=` points the page at a Worker on another origin, `?cta=` sets the booking link. If `/api/health` fails, the page renders a labelled demo report — a "working" page may not be hitting the backend.
+- Probes still follow redirects, so the host guard only covers the first hop — keep that in mind when touching fetch logic.
+- `?api=` points the page at an allowlisted Worker origin (for a copy of the HTML hosted elsewhere), `?cta=` sets the booking link. If `/api/health` fails, the page renders a labelled demo report — a "working" page may not be hitting the backend.
 
 ## Style & git
 
