@@ -29,6 +29,14 @@ Workspace "Carlos Vargas" (`RvgMoJ`), funnel "AI Crawler Gate Check" (`NDKoWg`, 
 - Submitting the opt-in creates a real ClickFunnels contact — don't submit it in automated checks.
 - If a CSP is ever added, allow `https://sdk.myclickfunnels.com` in `script-src`, `connect-src`, and `form-action`.
 
+## Embedded on a ClickFunnels page
+
+Step 3 of the funnel, "AI-Bot-Scan" (CF-hosted, page `WVvWGq`, `https://www.carlosvargas.com/ai-bot-scan-page`), embeds `/` in a fixed-height cross-origin iframe. The SDK submit redirects **the frame it was submitted in**, so the report would otherwise open inside that 900px box, with the address bar still on the CF page and third-party storage (blocked in Safari/Firefox) holding the scan context.
+
+So `/report` hands itself to the top window when framed: it posts `{type:'acgc-open-report', url}` to the parent and also tries `window.top.location.replace(...)`, falling back to rendering in place after 1.8s if neither lands. The CF page's `footer_code` holds the matching listener, which accepts the message only from the Worker's origin and only for a `/report` URL. `?id=<uuid>` carries the scan across that hand-off (first-party storage on the new origin is empty), and arriving with a valid `id` counts as opted in — the gate was already browser-side.
+
+If the Worker's host ever changes, update `ORIGIN` in that page's footer code too.
+
 ## Security invariants (a reviewer found these the hard way)
 
 - **`normalizeDomain` must judge the host `fetch()` will use**, not the raw string: `0x7f.0.0.1` and `0177.0.0.1` parse to `127.0.0.1`. It re-parses via `new URL()`, requires the hostname to be unchanged, and rejects IP literals outright. Tests in `test/worker.test.js` lock this in.

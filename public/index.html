@@ -439,6 +439,11 @@ function saveLast(v) {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(v)); } catch (e) {}
 }
 const STORED = IS_REPORT ? loadLast() : null;
+// ClickFunnels redirects the frame it submitted in, so /report can arrive inside an embed
+// with no query string. ?id= lets the report open full-page on its own origin.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const URL_SCAN_ID = UUID_RE.test(params.get('id') || '') ? params.get('id') : null;
+const IN_FRAME = window.top !== window.self;
 
 // ?api= may only point at this origin or the canonical Worker: otherwise a crafted link
 // could POST the visitor's domain to a third party and render its answer as a real report.
@@ -904,18 +909,34 @@ async function showReport() {
   const last = STORED;
   const again = '<p style="margin-top:16px"><a class="btn" href="/" style="text-decoration:none; display:inline-block">Run a scan</a></p>';
 
-  if (!last?.scanId) {
-    el.innerHTML = `<h2 class="sec">No report yet</h2><p class="sec-sub">Run a scan first, then unlock the full report.</p>${again}`;
-    return;
+  // Arrived by ?id= (full-page hand-off from an embed): trust it and remember it.
+  if (URL_SCAN_ID) {
+    saveLast({ scanId: URL_SCAN_ID, domain: last?.domain || '', api: last?.api || '', cta: last?.cta || '', optedIn: true });
   }
-  if (!last.optedIn) {
-    el.innerHTML = `<h2 class="sec">Unlock your report</h2><p class="sec-sub">Enter your name and email under the scan results for ${esc(last.domain)} to see the full report.</p>${again}`;
-    return;
+  const scanId = URL_SCAN_ID || (last?.optedIn ? last.scanId : null);
+
+  // Embedded in someone else's page: hand the report to the top window so it gets the full
+  // width, its own address bar, and first-party storage (Safari/Firefox block it in a frame).
+  if (IN_FRAME && scanId) {
+    const full = `${location.origin}/report?id=${encodeURIComponent(scanId)}`;
+    el.innerHTML = `<h2 class="sec">Opening your report</h2><p class="sec-sub">If nothing happens, <a href="${esc(full)}" target="_top">open it here</a>.</p>`;
+    try { window.parent.postMessage({ type: 'acgc-open-report', url: full }, '*'); } catch (e) {}
+    try { window.top.location.replace(full); } catch (e) {}
+    // If the host page never takes the hand-off, show the report where we are rather than hang.
+    await sleep(1800);
+    if (window.top === window.self) return;
   }
 
+  if (!scanId) {
+    const msg = last?.scanId
+      ? `<h2 class="sec">Unlock your report</h2><p class="sec-sub">Enter your name and email under the scan results for ${esc(last.domain)} to see the full report.</p>`
+      : '<h2 class="sec">No report yet</h2><p class="sec-sub">Run a scan first, then unlock the full report.</p>';
+    el.innerHTML = msg + again;
+    return;
+  }
   el.innerHTML = '<p class="sec-sub"><span class="spin"></span>Loading your report</p>';
   try {
-    const res = await fetch(`${API_BASE}/api/report?id=${encodeURIComponent(last.scanId)}`);
+    const res = await fetch(`${API_BASE}/api/report?id=${encodeURIComponent(scanId)}`);
     const d = await res.json();
     if (!res.ok || d.error) throw new Error(d.error || 'The report could not be loaded.');
     LAST = d;
