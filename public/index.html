@@ -264,6 +264,45 @@ tr.band td{
 .blur{position:relative; user-select:none}
 .blur > *{filter:blur(5px); opacity:.55; pointer-events:none}
 
+/* locked preview: blurred findings with the unlock call to action on top */
+.locked{position:relative}
+.lockcta{
+  position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:10px; text-align:center; padding:20px;
+}
+.lockcta .btn{box-shadow:var(--shadow-pop)}
+.lockcta p{margin:0; font-size:14px; color:var(--muted)}
+
+/* opt-in modal */
+.modal[hidden]{display:none !important}
+.modal{position:fixed; inset:0; z-index:50; display:grid; place-items:center; padding:20px}
+.modal-backdrop{position:absolute; inset:0; background:rgba(23,19,38,.45); backdrop-filter:blur(3px)}
+.modal-card{
+  position:relative; width:min(460px,100%); max-height:92vh; overflow-y:auto;
+  background:var(--surface); border:1.5px solid var(--line); border-radius:28px;
+  box-shadow:0 30px 70px -20px rgba(23,19,38,.45); padding:34px 28px 28px; text-align:center;
+  animation:pop .22s ease-out;
+}
+@keyframes pop{from{opacity:0; transform:translateY(10px) scale(.97)}to{opacity:1; transform:none}}
+.modal-x{
+  position:absolute; top:14px; right:14px; width:34px; height:34px; border-radius:50%;
+  border:none; background:var(--surface-2); color:var(--muted); font-size:20px; line-height:1;
+  cursor:pointer; display:grid; place-items:center;
+}
+.modal-x:hover{background:var(--line); color:var(--ink)}
+.modal-score{
+  width:104px; height:104px; margin:0 auto 16px; border-radius:50%;
+  display:grid; place-items:center; background:var(--surface-2); border:2.5px solid currentColor;
+}
+.modal-score[data-tone="good"]{color:var(--good)}
+.modal-score[data-tone="warn"]{color:var(--warn)}
+.modal-score[data-tone="crit"]{color:var(--crit)}
+.modal-score .n{font:700 40px/1 var(--font-ui); letter-spacing:-.03em}
+.modal-score .of{font:700 10px/1 var(--font-ui); letter-spacing:.14em; text-transform:uppercase; color:var(--faint); margin-top:4px}
+.modal-card h3{font:700 clamp(22px,3.2vw,27px)/1.2 var(--font-ui); letter-spacing:-.025em; margin:0 0 9px; text-wrap:balance}
+.modal-card .g-sub{font-size:16px; color:var(--muted); margin:0 auto 20px; max-width:38ch}
+@media (max-width:480px){ .modal-card{padding:28px 20px 22px} }
+
 /* limits / CTA */
 .limits{background:var(--surface-2); border:1.5px dashed var(--line-strong); border-radius:var(--radius); padding:24px 26px}
 .limits h3{font:700 21px/1.25 var(--font-ui); letter-spacing:-.015em; margin:0 0 10px}
@@ -542,31 +581,66 @@ function renderResults(d, full) {
 
   // Demo data has no scanId: unlock in place and never send a demo lead to ClickFunnels.
   const live = Boolean(d.scanId);
+  const scoreTone = tone;
   gate.innerHTML = `
     <h2 class="sec">The rest of the report</h2>
     <p class="sec-sub">${hiddenCount} more ${hiddenCount === 1 ? 'finding' : 'findings'}, the full crawler-by-crawler table, and what to change.</p>
-    <div class="gate">
-      <h3>Where should we send it?</h3>
-      <p class="g-sub">Unlock the full report for ${esc(d.domain)}. One email, no list churn.</p>
-      <form class="gateform" id="gateform">
-        <input type="text" id="lead-name" name="first_name" placeholder="First name" autocomplete="given-name" required ${live ? 'data-cf-element="first-name"' : ''}>
-        <input type="email" id="lead-email" name="email" placeholder="you@company.com" autocomplete="email" required ${live ? 'data-cf-element="email"' : ''}>
-        ${live ? `
-        <input type="hidden" name="scanned_domain" value="${esc(d.domain)}" data-cf-element="custom-attribute:scanned_domain">
-        <input type="hidden" name="site_type" value="${esc(d.intent)}" data-cf-element="custom-attribute:site_type">
-        <input type="hidden" name="crawler_score" value="${esc(d.score)}" data-cf-element="custom-attribute:crawler_score">
-        <input type="hidden" name="crawler_posture" value="${esc(d.posture)}" data-cf-element="custom-attribute:crawler_posture">
-        <input type="hidden" name="crawler_criticals" value="${esc(d.counts.critical)}" data-cf-element="custom-attribute:crawler_criticals">
-        <input type="hidden" name="scan_id" value="${esc(d.scanId)}" data-cf-element="custom-attribute:scan_id">` : ''}
-        <button class="btn" type="submit" id="gatebtn">Show the full report</button>
-      </form>
-      <div class="err" id="gateerr" hidden></div>
-      <p class="gatenote">We will email you a copy so you can forward it. Unsubscribe any time.</p>
+
+    <div class="locked">
+      <div class="blur" aria-hidden="true">
+        <div class="findings">${PLACEHOLDER_FINDINGS.map(findingHtml).join('')}</div>
+      </div>
+      <div class="lockcta">
+        <button class="btn" type="button" id="unlockbtn">Unlock the full report</button>
+        <p>Takes a name and an email.</p>
+      </div>
     </div>
-    <div class="blur" aria-hidden="true" style="margin-top:14px">
-      <div class="findings">${PLACEHOLDER_FINDINGS.map(findingHtml).join('')}</div>
+
+    <div class="modal" id="gatemodal" hidden role="dialog" aria-modal="true" aria-labelledby="gatetitle">
+      <div class="modal-backdrop" data-close></div>
+      <div class="modal-card">
+        <button class="modal-x" type="button" data-close aria-label="Close">&times;</button>
+        <div class="modal-score" data-tone="${esc(scoreTone)}">
+          <span class="n">${esc(d.score)}</span>
+          <span class="of">of 100</span>
+        </div>
+        <h3 id="gatetitle">${esc(d.domain)} scored ${esc(d.score)} out of 100</h3>
+        <p class="g-sub">${d.counts.critical} critical ${d.counts.critical === 1 ? 'finding' : 'findings'} and ${hiddenCount} more ${hiddenCount === 1 ? 'section' : 'sections'} are waiting. Tell us where to send the full report.</p>
+        <form class="gateform" id="gateform">
+          <input type="text" id="lead-name" name="first_name" placeholder="First name" autocomplete="given-name" required ${live ? 'data-cf-element="first-name"' : ''}>
+          <input type="email" id="lead-email" name="email" placeholder="you@company.com" autocomplete="email" required ${live ? 'data-cf-element="email"' : ''}>
+          ${live ? `
+          <input type="hidden" name="scanned_domain" value="${esc(d.domain)}" data-cf-element="custom-attribute:scanned_domain">
+          <input type="hidden" name="site_type" value="${esc(d.intent)}" data-cf-element="custom-attribute:site_type">
+          <input type="hidden" name="crawler_score" value="${esc(d.score)}" data-cf-element="custom-attribute:crawler_score">
+          <input type="hidden" name="crawler_posture" value="${esc(d.posture)}" data-cf-element="custom-attribute:crawler_posture">
+          <input type="hidden" name="crawler_criticals" value="${esc(d.counts.critical)}" data-cf-element="custom-attribute:crawler_criticals">
+          <input type="hidden" name="scan_id" value="${esc(d.scanId)}" data-cf-element="custom-attribute:scan_id">` : ''}
+          <button class="btn" type="submit" id="gatebtn">Show the full report</button>
+        </form>
+        <p class="gatenote">We will email you a copy so you can forward it. Unsubscribe any time.</p>
+      </div>
     </div>
   `;
+
+  const modal = document.getElementById('gatemodal');
+  const openGate = () => {
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    document.getElementById('lead-name').focus({ preventScroll: true });
+  };
+  const closeGate = () => {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+    document.getElementById('unlockbtn').focus({ preventScroll: true });
+  };
+  document.getElementById('unlockbtn').addEventListener('click', openGate);
+  modal.querySelectorAll('[data-close]').forEach((n) => n.addEventListener('click', closeGate));
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && !modal.hidden) closeGate();
+  });
+  // Let the score land first, then ask for the email.
+  setTimeout(() => { if (document.getElementById('gatemodal') === modal) openGate(); }, 1200);
 
   const gateForm = document.getElementById('gateform');
   if (live) {
@@ -583,6 +657,7 @@ function renderResults(d, full) {
 
   gateForm.addEventListener('submit', (ev) => {
     ev.preventDefault();
+    closeGate();
     UNLOCKED = true;
     renderFull(document.getElementById('gatewrap'), d, rest);
     document.getElementById('gatewrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -595,6 +670,7 @@ const PLACEHOLDER_FINDINGS = [
 ];
 
 function renderFull(el, d, rest) {
+  document.body.style.overflow = '';
   el.innerHTML = `
     <h2 class="sec">Everything the scan found</h2>
     <p class="sec-sub">Ordered by what costs you the most if it stays as it is.</p>
