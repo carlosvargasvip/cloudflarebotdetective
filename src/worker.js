@@ -86,10 +86,18 @@ function normalizeDomain(raw) {
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(v)) {
     throw new Error('That does not look like a valid domain.');
   }
-  if (BLOCKED_HOST_PATTERNS.some((re) => re.test(v))) {
+
+  // Re-read the host the way fetch() will: `0x7f.0.0.1` and `0177.0.0.1` are 127.0.0.1
+  // to the URL parser but sail past a regex written for dotted-decimal.
+  let host;
+  try { host = new URL(`https://${v}/`).hostname; } catch { throw new Error('That does not look like a valid domain.'); }
+  if (host !== v) throw new Error('That host cannot be scanned.');
+  // A scanner only ever needs real domain names, so refuse IP literals of any shape.
+  if (/^\d+(\.\d+)*$/.test(host) || host.startsWith('[')) throw new Error('That host cannot be scanned.');
+  if (BLOCKED_HOST_PATTERNS.some((re) => re.test(host))) {
     throw new Error('That host cannot be scanned.');
   }
-  return v;
+  return host;
 }
 
 /* ------------------------------------------------------------------ *
@@ -145,8 +153,27 @@ async function fetchText(url, maxBytes = 120000) {
       cf: { cacheTtl: 0 },
     });
     if (!res.ok) { try { await res.body?.cancel(); } catch {} return { status: res.status, text: '' }; }
-    const text = (await res.text()).slice(0, maxBytes);
-    return { status: res.status, text };
+    if (!res.body) return { status: res.status, text: '' };
+
+    const reader = res.body.getReader();
+    const chunks = [];
+    let size = 0;
+    while (size < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      size += value.length;
+    }
+    try { await reader.cancel(); } catch { /* already done */ }
+
+    const buf = new Uint8Array(Math.min(size, maxBytes));
+    let at = 0;
+    for (const c of chunks) {
+      if (at >= buf.length) break;
+      buf.set(c.subarray(0, buf.length - at), at);
+      at += c.length;
+    }
+    return { status: res.status, text: new TextDecoder().decode(buf) };
   } catch {
     return { status: 0, text: '' };
   } finally {
@@ -618,6 +645,11 @@ function analyze({ domain, intent, results, robots, onCloudflare, siteReachable 
  * ------------------------------------------------------------------ */
 
 async function rateLimit(env, ip, limit = 12, windowSec = 600) {
+  // Atomic, per-colo burst guard. Stops the concurrent flood the KV counter below cannot see.
+  if (env.SCAN_LIMITER) {
+    const { success } = await env.SCAN_LIMITER.limit({ key: ip });
+    if (!success) return false;
+  }
   if (!env.KV) return true; // KV not bound: skip rather than fail
   const key = `rl:${ip}:${Math.floor(Date.now() / (windowSec * 1000))}`;
   const n = parseInt((await env.KV.get(key)) || '0', 10);
@@ -631,7 +663,10 @@ async function rateLimit(env, ip, limit = 12, windowSec = 600) {
  * until the report page asks for it after the ClickFunnels opt-in.
  * ------------------------------------------------------------------ */
 
-const SCAN_TTL_SEC = 60 * 60 * 24 * 30;
+const SCAN_TTL_SEC = 60 * 60 * 24 * 7;
+// Repeat scans of the same domain reuse a recent result instead of re-probing it.
+// This is what actually caps how much traffic this Worker can aim at one site.
+const SCAN_CACHE_TTL_SEC = 600;
 const SCAN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // Headline = first critical, else first warning, else first finding (findings are pre-sorted by severity).
@@ -665,7 +700,7 @@ export default {
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders() });
 
-    if (url.pathname === '/api/health') return json({ ok: true, crawlers: PROBES.length });
+    if (url.pathname === '/api/health') return json({ ok: true, crawlers: PROBES.length, limiter: typeof env.SCAN_LIMITER?.limit === 'function', kv: Boolean(env.KV) });
 
     if (url.pathname === '/api/scan' && request.method === 'POST') {
       const ip = request.headers.get('cf-connecting-ip') || 'unknown';
@@ -678,14 +713,23 @@ export default {
       try { domain = normalizeDomain(body.domain); } catch (e) { return json({ error: e.message }, 400); }
 
       const intent = ['funnel', 'content', 'ecommerce', 'mixed'].includes(body.intent) ? body.intent : 'mixed';
+      const cacheKey = `cache:${domain}:${intent}`;
+      if (env.KV) {
+        const hit = await env.KV.get(cacheKey);
+        if (hit) return new Response(hit, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...corsHeaders() } });
+      }
+
       try {
         const result = await runScan(domain, intent);
         if (!env.KV) return json(toTeaser(result)); // no KV: nothing to unlock later
         const scanId = crypto.randomUUID();
+        const teaser = JSON.stringify({ ...toTeaser(result), scanId });
         await env.KV.put(`scan:${scanId}`, JSON.stringify(result), { expirationTtl: SCAN_TTL_SEC });
-        return json({ ...toTeaser(result), scanId });
+        await env.KV.put(cacheKey, teaser, { expirationTtl: SCAN_CACHE_TTL_SEC });
+        return new Response(teaser, { headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...corsHeaders() } });
       } catch (e) {
-        return json({ error: 'The scan could not complete.', detail: String(e.message || e) }, 500);
+        console.error('scan failed', e);
+        return json({ error: 'The scan could not complete.' }, 500);
       }
     }
 

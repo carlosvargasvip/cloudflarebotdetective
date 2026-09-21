@@ -395,8 +395,30 @@ function saveLast(v) {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(v)); } catch (e) {}
 }
 const STORED = IS_REPORT ? loadLast() : null;
-const API_BASE = (params.get('api') || STORED?.api || '').replace(/\/$/, '');
-const CONSULT_URL = params.get('cta') || STORED?.cta || '#';
+
+// ?api= may only point at this origin or the canonical Worker: otherwise a crafted link
+// could POST the visitor's domain to a third party and render its answer as a real report.
+const API_HOSTS = new Set([location.host, 'ai-crawler-audit.carlosvargas.workers.dev']);
+function safeApiBase(raw) {
+  if (!raw) return '';
+  try {
+    const u = new URL(raw, location.origin);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return '';
+    if (!API_HOSTS.has(u.host)) return '';
+    return (u.origin + u.pathname).replace(/\/$/, '');
+  } catch (e) { return ''; }
+}
+// ?cta= ends up in an href, so block javascript: and other non-web schemes.
+function safeUrl(raw) {
+  try {
+    const u = new URL(raw, location.origin);
+    return /^https?:$/.test(u.protocol) ? u.href : '#';
+  } catch (e) { return '#'; }
+}
+const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+const API_BASE = safeApiBase(params.get('api') || STORED?.api || '');
+const CONSULT_URL = safeUrl(params.get('cta') || STORED?.cta || '#');
 
 const CATEGORY_LABEL = {
   control: 'baseline', training: 'training', agent: 'agent', search: 'search'
@@ -520,7 +542,8 @@ async function animateManifest(data) {
 /* ------------------------------------------------------------------ *
  * Render
  * ------------------------------------------------------------------ */
-function ringSvg(score, tone) {
+function ringSvg(rawScore, tone) {
+  const score = num(rawScore);
   const R = 62, C = 2 * Math.PI * R;
   const on = (Math.max(0, Math.min(100, score)) / 100) * C;
   const stroke = tone === 'good' ? 'url(#ringgrad)' : `var(--${tone})`;
@@ -534,12 +557,19 @@ function ringSvg(score, tone) {
   </svg>`;
 }
 
+// Set by the current gate modal so one document-level Escape handler serves every render.
+let CLOSE_GATE = null;
+document.addEventListener('keydown', (ev) => {
+  const m = document.getElementById('gatemodal');
+  if (ev.key === 'Escape' && m && !m.hidden && CLOSE_GATE) CLOSE_GATE();
+});
+
 function renderResults(d, full) {
   const tone = d.score >= 75 ? 'good' : d.score >= 50 ? 'warn' : 'crit';
   const crit = d.findings.filter((f) => f.severity === 'critical');
   const teaser = crit[0] || d.findings.find((f) => f.severity === 'warning') || d.findings[0];
   const rest = d.findings.filter((f) => f !== teaser);
-  const hiddenCount = d.hiddenFindings ?? rest.length;
+  const hiddenCount = num(d.hiddenFindings ?? rest.length);
 
   const el = document.getElementById('results');
   el.hidden = false;
@@ -553,9 +583,9 @@ function renderResults(d, full) {
           <h2 class="posture-name">${esc(d.posture)}</h2>
           <p class="posture-line">${esc(d.postureLine)}</p>
           <div class="tally">
-            <span class="chip crit"><span class="n">${d.counts.critical}</span> critical</span>
-            <span class="chip warn"><span class="n">${d.counts.warning}</span> to review</span>
-            <span class="chip good"><span class="n">${d.counts.good}</span> in good shape</span>
+            <span class="chip crit"><span class="n">${num(d.counts.critical)}</span> critical</span>
+            <span class="chip warn"><span class="n">${num(d.counts.warning)}</span> to review</span>
+            <span class="chip good"><span class="n">${num(d.counts.good)}</span> in good shape</span>
             <span class="chip neutral">${esc(d.intentName)}</span>
           </div>
         </div>
@@ -565,7 +595,7 @@ function renderResults(d, full) {
         <span>${d.onCloudflare ? 'Cloudflare edge detected' : 'no Cloudflare edge'}</span>
         <span>${d.robots.present ? 'robots.txt found' : 'no robots.txt'}</span>
         <span>${d.robots.contentSignals ? 'Content Signals declared' : 'no Content Signals'}</span>
-        <span>${(d.durationMs / 1000).toFixed(1)}s</span>
+        <span>${(num(d.durationMs) / 1000).toFixed(1)}s</span>
       </div>
     </div>
 
@@ -601,20 +631,20 @@ function renderResults(d, full) {
       <div class="modal-card">
         <button class="modal-x" type="button" data-close aria-label="Close">&times;</button>
         <div class="modal-score" data-tone="${esc(scoreTone)}">
-          <span class="n">${esc(d.score)}</span>
+          <span class="n">${num(d.score)}</span>
           <span class="of">of 100</span>
         </div>
-        <h3 id="gatetitle">${esc(d.domain)} scored ${esc(d.score)} out of 100</h3>
-        <p class="g-sub">${d.counts.critical} critical ${d.counts.critical === 1 ? 'finding' : 'findings'} and ${hiddenCount} more ${hiddenCount === 1 ? 'section' : 'sections'} are waiting. Tell us where to send the full report.</p>
+        <h3 id="gatetitle">${esc(d.domain)} scored ${num(d.score)} out of 100</h3>
+        <p class="g-sub">${num(d.counts.critical)} critical ${num(d.counts.critical) === 1 ? 'finding' : 'findings'} and ${hiddenCount} more ${hiddenCount === 1 ? 'section' : 'sections'} are waiting. Tell us where to send the full report.</p>
         <form class="gateform" id="gateform">
           <input type="text" id="lead-name" name="first_name" placeholder="First name" autocomplete="given-name" required ${live ? 'data-cf-element="first-name"' : ''}>
           <input type="email" id="lead-email" name="email" placeholder="you@company.com" autocomplete="email" required ${live ? 'data-cf-element="email"' : ''}>
           ${live ? `
           <input type="hidden" name="scanned_domain" value="${esc(d.domain)}" data-cf-element="custom-attribute:scanned_domain">
           <input type="hidden" name="site_type" value="${esc(d.intent)}" data-cf-element="custom-attribute:site_type">
-          <input type="hidden" name="crawler_score" value="${esc(d.score)}" data-cf-element="custom-attribute:crawler_score">
+          <input type="hidden" name="crawler_score" value="${num(d.score)}" data-cf-element="custom-attribute:crawler_score">
           <input type="hidden" name="crawler_posture" value="${esc(d.posture)}" data-cf-element="custom-attribute:crawler_posture">
-          <input type="hidden" name="crawler_criticals" value="${esc(d.counts.critical)}" data-cf-element="custom-attribute:crawler_criticals">
+          <input type="hidden" name="crawler_criticals" value="${num(d.counts.critical)}" data-cf-element="custom-attribute:crawler_criticals">
           <input type="hidden" name="scan_id" value="${esc(d.scanId)}" data-cf-element="custom-attribute:scan_id">` : ''}
           <button class="btn" type="submit" id="gatebtn">Show the full report</button>
         </form>
@@ -636,9 +666,7 @@ function renderResults(d, full) {
   };
   document.getElementById('unlockbtn').addEventListener('click', openGate);
   modal.querySelectorAll('[data-close]').forEach((n) => n.addEventListener('click', closeGate));
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && !modal.hidden) closeGate();
-  });
+  CLOSE_GATE = closeGate;
   // Let the score land first, then ask for the email.
   setTimeout(() => { if (document.getElementById('gatemodal') === modal) openGate(); }, 1200);
 
@@ -671,6 +699,7 @@ const PLACEHOLDER_FINDINGS = [
 
 function renderFull(el, d, rest) {
   document.body.style.overflow = '';
+  CLOSE_GATE = null;
   el.innerHTML = `
     <h2 class="sec">Everything the scan found</h2>
     <p class="sec-sub">Ordered by what costs you the most if it stays as it is.</p>
@@ -726,7 +755,7 @@ function tableHtml(d) {
         <td class="name">${esc(r.label)}</td>
         <td class="vendor">${esc(r.vendor)}</td>
         <td class="rob">${esc(rob)}</td>
-        <td><span class="vchip ${esc(cls)}">${esc(r.verdictLabel)}${r.status ? ' · ' + r.status : ''}</span></td>
+        <td><span class="vchip ${esc(cls)}">${esc(r.verdictLabel)}${r.status ? ' · ' + num(r.status) : ''}</span></td>
       </tr>`;
     }).join('');
   }

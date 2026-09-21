@@ -51,6 +51,13 @@ describe('normalizeDomain', () => {
       assert.throws(() => normalizeDomain(host), /cannot be scanned/, host);
     }
   });
+
+  it('blocks IP literals the URL parser would rewrite', () => {
+    // `0x7f.0.0.1` and `0177.0.0.1` are 127.0.0.1 to fetch(), but look like domains to a regex.
+    for (const host of ['0x7f.0.0.1', '0177.0.0.1', '0xa.0.0.1', '0x64.0x40.0x1.0x1', '8.8.8.8']) {
+      assert.throws(() => normalizeDomain(host), /cannot be scanned/, host);
+    }
+  });
 });
 
 /* ------------------------------------------------------------------ *

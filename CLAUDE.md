@@ -14,7 +14,7 @@ AI Crawler Gate Check: a lead-magnet Cloudflare Worker (`src/worker.js`) plus a 
 ## Deploying
 
 - Claude may deploy freely with `npx wrangler deploy` (use `/deploy`). Live at `https://ai-crawler-audit.carlosvargas.workers.dev`. Keep the Worker name `ai-crawler-audit` — the ClickFunnels pages are registered against this URL.
-- KV binding `KV` holds scan results (`scan:<uuid>`, 30-day TTL) and rate-limit counters (`rl:<ip>:<window>`, 12 scans/IP/10 min). No leads are stored in KV.
+- KV binding `KV` holds scan results (`scan:<uuid>`, 7-day TTL), a per-domain teaser cache (`cache:<domain>:<intent>`, 10 min) and rate-limit counters (`rl:<ip>:<window>`, 12 scans/IP/10 min). No leads are stored in KV.
 
 ## Lead capture: ClickFunnels SDK
 
@@ -28,6 +28,15 @@ Workspace "Carlos Vargas" (`RvgMoJ`), funnel "AI Crawler Gate Check" (`NDKoWg`, 
 - The funnel is live, so submits only work at the registered URLs; `wrangler dev` loads the SDK dormant (`url_mismatch`). Changing the host means updating both pages' `external_url` (tokens stay the same).
 - Submitting the opt-in creates a real ClickFunnels contact — don't submit it in automated checks.
 - If a CSP is ever added, allow `https://sdk.myclickfunnels.com` in `script-src`, `connect-src`, and `form-action`.
+
+## Security invariants (a reviewer found these the hard way)
+
+- **`normalizeDomain` must judge the host `fetch()` will use**, not the raw string: `0x7f.0.0.1` and `0177.0.0.1` parse to `127.0.0.1`. It re-parses via `new URL()`, requires the hostname to be unchanged, and rejects IP literals outright. Tests in `test/worker.test.js` lock this in.
+- **Each scan fans out to 16 outbound probes**, so this Worker is an amplifier if scans are cheap. Three things bound it: the atomic `SCAN_LIMITER` binding (6/IP/60s), the KV counter (12/IP/10 min), and the `cache:` teaser reuse. Don't remove the cache without replacing that bound.
+- **`?api=` is allowlisted** to this origin or the canonical Worker host (`safeApiBase`). Unvalidated, a crafted link makes the real page render an attacker's JSON as a genuine report and leaks the visitor's domain and `scanId`.
+- **`?cta=` goes into an `href`**, so `safeUrl()` allows only http(s) — `esc()` does not stop `javascript:`.
+- **Never interpolate API numbers raw into HTML/SVG.** `esc()` covers strings; counts, scores, `status` and `hiddenFindings` go through `num()`. Both are needed.
+- Don't return exception text to callers (`/api/scan` logs and returns a generic message).
 
 ## Gotchas
 

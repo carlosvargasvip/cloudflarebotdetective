@@ -133,7 +133,8 @@ What to actually open in the client's Cloudflare account, in order:
 
 ## Notes
 
-- Rate limited to 12 scans per IP per 10 minutes, backed by KV (`rl:` keys). Adjust in `rateLimit()`.
-- Private ranges, localhost and `.internal` hosts are refused.
+- Rate limited two ways: an atomic per-IP limiter binding (`SCAN_LIMITER`, 6 scans/60s) and a KV counter (12 per IP per 10 minutes, `rl:` keys). Repeat scans of the same domain within 10 minutes reuse a cached teaser (`cache:` keys) instead of re-probing the target.
+- Private ranges, localhost, `.internal` hosts and IP literals are refused, including hex/octal forms (`0x7f.0.0.1`) that resolve to loopback.
+- `?api=` is allowlisted to this origin or the canonical Worker; `?cta=` accepts only http(s) URLs.
 - Each probe times out at 9 seconds.
 - Cloudflare's September 15, 2026 defaults apply to newly onboarded domains. Existing zones were left alone, which is exactly why so many of them score badly.
