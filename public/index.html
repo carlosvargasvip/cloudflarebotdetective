@@ -447,6 +447,7 @@ function safeApiBase(raw) {
 }
 // ?cta= ends up in an href, so block javascript: and other non-web schemes.
 function safeUrl(raw) {
+  if (!raw || raw === '#') return '#';
   try {
     const u = new URL(raw, location.origin);
     return /^https?:$/.test(u.protocol) ? u.href : '#';

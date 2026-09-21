@@ -49,6 +49,23 @@ Workspace "Carlos Vargas" (`RvgMoJ`), funnel "AI Crawler Gate Check" (`NDKoWg`, 
 
 The full report's **Download PDF** button calls `window.print()`; everything else is the `@media print` block in `index.html`. `renderFull()` sets `document.title` (the saved filename) and prepends `.printhead` (hidden on screen). If you add report sections, check they don't break across pages — `break-inside:avoid` is set per finding and table row.
 
+## Browser checks
+
+`agent-browser` (global CLI, Chrome via CDP) is the way to verify the page end to end. Start with your own session, and don't submit the opt-in (it creates a real contact):
+
+```bash
+export AGENT_BROWSER_SESSION="$(agent-browser session id --scope worktree --prefix gatecheck)"
+agent-browser open https://ai-crawler-audit.carlosvargas.workers.dev/
+agent-browser snapshot -i                 # refs for interactive elements
+agent-browser fill "#domain" example.com && agent-browser click "#scanbtn"
+agent-browser wait "#gatemodal .modal-card" --timeout 90000   # selector is positional, not --selector
+agent-browser eval "document.getElementById('gatetitle').textContent"
+agent-browser close
+```
+
+To reach the `/report` step without opting in, seed the state the ClickFunnels redirect leaves behind:
+`localStorage.setItem('acgc-last-scan', JSON.stringify({scanId:'<uuid>', domain:'…', api:'', cta:'', optedIn:true}))`.
+
 ## Style & git
 
 - 2-space indent, single quotes, semicolons; separate sections with the existing `/* ---- * Section * ---- */` banner comments.
