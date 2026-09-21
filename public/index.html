@@ -444,6 +444,18 @@ const STORED = IS_REPORT ? loadLast() : null;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const URL_SCAN_ID = UUID_RE.test(params.get('id') || '') ? params.get('id') : null;
 const IN_FRAME = window.top !== window.self;
+// A host page can ask us to prefill and run immediately (used by the embed hand-off).
+const AUTO_DOMAIN = (params.get('domain') || '').trim();
+const AUTO_RUN = params.get('auto') === '1' && Boolean(AUTO_DOMAIN);
+
+// ClickFunnels' SDK posts the opt-in to sdk.myclickfunnels.com, whose CSP sets
+// frame-ancestors to CF hosts only — so an opt-in inside an iframe on any other
+// domain is blocked by the browser. When embedded, move the visitor to this page
+// on its own origin and run the whole flow there.
+function handOff(url) {
+  try { window.parent.postMessage({ type: 'acgc-open', url }, '*'); } catch (e) {}
+  try { window.top.location.replace(url); } catch (e) {}
+}
 
 // ?api= may only point at this origin or the canonical Worker: otherwise a crafted link
 // could POST the visitor's domain to a third party and render its answer as a real report.
@@ -519,6 +531,15 @@ form.addEventListener('submit', async (e) => {
   const domain = document.getElementById('domain').value.trim();
   const intent = (document.querySelector('input[name=intent]:checked') || {}).value || 'mixed';
   if (!domain) { showErr('Enter a domain to scan.'); return; }
+
+  if (IN_FRAME) {
+    scanBtn.disabled = true;
+    scanBtn.innerHTML = '<span class="spin"></span>Opening';
+    handOff(`${location.origin}/?domain=${encodeURIComponent(domain)}&intent=${encodeURIComponent(intent)}&auto=1`);
+    await sleep(1600);
+    // Host page never took the hand-off: scan here so the visitor still sees their score.
+    if (window.top !== window.self) { resetBtn(); } else { return; }
+  }
 
   scanBtn.disabled = true;
   scanBtn.innerHTML = '<span class="spin"></span>Scanning';
@@ -948,8 +969,16 @@ async function showReport() {
 
 if (IS_REPORT) showReport();
 
+/* Prefilled hand-off from an embed: run the scan straight away. */
+if (!IS_REPORT && AUTO_RUN) {
+  document.getElementById('domain').value = AUTO_DOMAIN;
+  const intentEl = document.querySelector(`input[name=intent][value="${CSS.escape(params.get('intent') || 'mixed')}"]`);
+  if (intentEl) intentEl.checked = true;
+  form.requestSubmit();
+}
+
 /* Auto-run a demo report when there is no backend, so the page is never an empty shell. */
-if (!IS_REPORT && !API_BASE) {
+if (!IS_REPORT && !AUTO_RUN && !API_BASE) {
   (async () => {
     const probe = await fetch('/api/health').then((r) => r.ok).catch(() => false);
     if (probe) return;

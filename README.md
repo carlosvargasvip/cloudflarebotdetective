@@ -61,7 +61,9 @@ Flow:
 
 Funnel step 3, "AI-Bot-Scan" (`https://www.carlosvargas.com/ai-bot-scan-page`), embeds `/` in a fixed-height cross-origin iframe. The SDK redirects the frame it was submitted in, so without help the report opens inside that box — address bar still on the CF page, report scrolling in a 900px window, and the scan context stuck in third-party storage that Safari and Firefox block.
 
-So `/report` hands itself to the top window when it is framed: it posts `{type:'acgc-open-report', url}` to the parent (and also tries a direct top navigation), falling back to rendering in place after 1.8s. `?id=<scanId>` carries the scan to the newly first-party origin. The CF page holds the matching listener in its footer code, which accepts the message only from the Worker's origin and only for a `/report` URL — update its `ORIGIN` if the Worker moves.
+**The opt-in itself cannot run inside that iframe.** `sdk.myclickfunnels.com` sends `frame-ancestors 'self' *.marketing.ai *.myclickfunnels.com`, so a submit from a frame hosted on any other domain is blocked by the browser (`ERR_BLOCKED_BY_RESPONSE`).
+
+So the embed is just the entry point. Running a scan inside it hands the visitor to `/?domain=…&intent=…&auto=1` on the Worker's own origin (postMessage to the host page, plus a direct top-navigation attempt), and the scan, opt-in and report all happen first-party from there. `/report` does the same if it is ever reached inside a frame, passing `?id=<scanId>`. The host page carries the listener in its footer code; it accepts messages only from the Worker's origin — update its `ORIGIN` if the Worker moves.
 
 The gate is enforced in the browser: `/report` only renders after this browser submitted the opt-in, but the report API itself is not tied to a verified contact. To make it strict, add a ClickFunnels webhook on opt-in that marks `scan:<id>` unlocked, and have `/api/report` check it.
 

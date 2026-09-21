@@ -33,7 +33,11 @@ Workspace "Carlos Vargas" (`RvgMoJ`), funnel "AI Crawler Gate Check" (`NDKoWg`, 
 
 Step 3 of the funnel, "AI-Bot-Scan" (CF-hosted, page `WVvWGq`, `https://www.carlosvargas.com/ai-bot-scan-page`), embeds `/` in a fixed-height cross-origin iframe. The SDK submit redirects **the frame it was submitted in**, so the report would otherwise open inside that 900px box, with the address bar still on the CF page and third-party storage (blocked in Safari/Firefox) holding the scan context.
 
-So `/report` hands itself to the top window when framed: it posts `{type:'acgc-open-report', url}` to the parent and also tries `window.top.location.replace(...)`, falling back to rendering in place after 1.8s if neither lands. The CF page's `footer_code` holds the matching listener, which accepts the message only from the Worker's origin and only for a `/report` URL. `?id=<uuid>` carries the scan across that hand-off (first-party storage on the new origin is empty), and arriving with a valid `id` counts as opted in — the gate was already browser-side.
+**An SDK opt-in cannot run inside that iframe.** `sdk.myclickfunnels.com` serves `frame-ancestors 'self' *.marketing.ai *.myclickfunnels.com`, so when the form submits from a frame whose top is `carlosvargas.com`, Chrome blocks the navigation (`ERR_BLOCKED_BY_RESPONSE`). A redirect can slip through unrendered, which is why a headless run once appeared to work — don't trust that.
+
+So the embed is only an entry point: when `IN_FRAME`, the scan form hands the visitor off to `ORIGIN/?domain=…&intent=…&auto=1` (postMessage to the parent plus a direct top-navigation attempt, falling back to scanning in place after 1.6s). Everything after that — scan, opt-in, report — runs first-party, where neither the CSP nor third-party storage applies. `/report` keeps the same hand-off for the case where it is reached inside a frame, with `?id=<uuid>` carrying the scan across; arriving with a valid `id` counts as opted in.
+
+The CF page's `footer_code` holds the matching listener; it accepts `acgc-open`/`acgc-open-report` only from the Worker's origin and only for URLs on that origin.
 
 If the Worker's host ever changes, update `ORIGIN` in that page's footer code too.
 
